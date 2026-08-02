@@ -26,18 +26,23 @@ function detailFor(event?: StageEvent): string {
   return `${String(payload.location)} · ${Math.round(Number(payload.confidence) * 100)}% confidence`
 }
 
-export function ReasoningPipeline({ events, isProcessing }: { events: StageEvent[]; isProcessing: boolean }) {
+function usePipelineState(events: StageEvent[]) {
   const completed = new Map(events.map((event) => [event.stage, event]))
   const activeIndex = Math.min(events.length, stages.length - 1)
   const reasoning = completed.get('reasoning')?.payload
   const rationale = (reasoning?.rationale as string[] | undefined) ?? []
+  return { completed, activeIndex, reasoning, rationale }
+}
+
+export function PipelineTracker({ events, isProcessing }: { events: StageEvent[]; isProcessing: boolean }) {
+  const { completed, activeIndex } = usePipelineState(events)
 
   return (
-    <section className="panel overflow-hidden" aria-label="Agent reasoning pipeline">
-      <div className="flex items-center justify-between border-b border-white/7 px-5 py-4">
+    <section className="panel pipeline-tracker overflow-hidden" aria-label="Agent reasoning pipeline">
+      <div className="dashboard-card-header flex items-center justify-between px-5 py-4">
         <div>
           <div className="eyebrow"><Icon name="spark" className="size-3.5" /> Agent intelligence</div>
-          <h2 className="mt-1 text-base font-semibold text-white">Live reasoning trace</h2>
+          <h2 className="mt-1 text-base font-semibold text-white">Processing track</h2>
         </div>
         <span className={`status-pill ${isProcessing ? 'status-live' : ''}`}><span className="status-dot" />{isProcessing ? 'Processing' : events.length ? 'Complete' : 'Standby'}</span>
       </div>
@@ -61,20 +66,29 @@ export function ReasoningPipeline({ events, isProcessing }: { events: StageEvent
             )
           })}
         </div>
-        {reasoning && (
-          <div className="mt-4 rounded-xl border border-cyan-300/15 bg-cyan-400/[0.04] p-4" data-testid="live-reasoning-output">
-            <div className="flex items-center justify-between gap-3">
-              <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-cyan-300">Groq decision output</p>
-              <span className="font-mono text-[10px] text-slate-500">{String(reasoning.model ?? '')}</span>
-            </div>
-            <p className="mt-2 text-sm font-medium text-white">{String(reasoning.alert_message ?? '')}</p>
-            <ul className="mt-3 space-y-1.5 text-xs text-slate-400">
-              {rationale.map((item) => <li key={item} className="flex gap-2"><span className="text-cyan-400">•</span><span>{item}</span></li>)}
-            </ul>
-            <p className="mt-3 text-[10px] uppercase tracking-wider text-slate-500">Emergency notification: {reasoning.notify_emergency_services ? 'recommended' : 'not required'}</p>
-          </div>
-        )}
       </div>
     </section>
   )
+}
+
+export function AIResponse({ events, isProcessing }: { events: StageEvent[]; isProcessing: boolean }) {
+  const { reasoning, rationale } = usePipelineState(events)
+  return <section className="panel ai-response-card overflow-hidden" aria-label="AI response and decision">
+    <div className="dashboard-card-header flex items-center justify-between px-5 py-4">
+      <div><div className="eyebrow"><Icon name="spark" className="size-3.5" /> Context-aware response</div><h2 className="mt-1 text-base font-semibold text-white">AI decision & rationale</h2></div>
+      <span className={`status-pill ${isProcessing ? 'status-live' : ''}`}><span className="status-dot" />{isProcessing ? 'Reasoning' : reasoning ? 'Decision ready' : 'Awaiting scan'}</span>
+    </div>
+    <div className="p-5">
+      {reasoning ? <div className="ai-response-content" data-testid="live-reasoning-output">
+        <div className="ai-agent-line"><span className="ai-agent-avatar"><Icon name="spark" /></span><div><strong>Sentrix agent</strong><small>{String(reasoning.model ?? 'Groq reasoning model')}</small></div><span className="ai-severity">{String(reasoning.severity ?? 'assessed')} risk</span></div>
+        <p className="ai-alert-message">{String(reasoning.alert_message ?? '')}</p>
+        <div className="ai-rationale-grid">{rationale.map((item, index) => <div key={item}><b>{String(index + 1).padStart(2, '0')}</b><p>{item}</p></div>)}</div>
+        <div className="ai-notification"><span>Recommended action</span><strong>{reasoning.notify_emergency_services ? 'Escalate to the configured emergency contact' : 'Continue monitoring under the retrieved policy'}</strong></div>
+      </div> : <div className="ai-empty"><span><Icon name="spark" /></span><div><strong>{isProcessing ? 'Building the response…' : 'No decision yet'}</strong><p>{isProcessing ? 'Verified evidence and retrieved policy are being evaluated.' : 'Upload CCTV footage and run a scan to generate a policy-grounded decision.'}</p></div></div>}
+    </div>
+  </section>
+}
+
+export function ReasoningPipeline({ events, isProcessing }: { events: StageEvent[]; isProcessing: boolean }) {
+  return <div className="space-y-5"><PipelineTracker events={events} isProcessing={isProcessing} /><AIResponse events={events} isProcessing={isProcessing} /></div>
 }
