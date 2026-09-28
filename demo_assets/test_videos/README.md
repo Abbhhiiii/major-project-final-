@@ -2,6 +2,12 @@
 
 These three-second MP4 clips are encoded from the accident-model repository's sample images. Results below were measured from the decoded MP4 frames with `best.pt` and the configured `0.5` confidence threshold.
 
+Sentrix now generates deterministic, video-seeded smoke and audio readings for every decoded frame.
+The legacy `sensor-metadata.json` file remains only as a reference fixture for low-level tests.
+Each reading includes a normalized probability, reliability, and age in milliseconds. The values
+exercise corroboration, contradiction, stale-data handling, and guarded override behavior. They are
+demo fixtures—not measurements captured from the video and not evidence of real sensor accuracy.
+
 | Clip | Expected detections | Measured confidence |
 | --- | ---: | ---: |
 | `image1-accident-test.mp4` | 1 | 0.710 |
@@ -21,3 +27,14 @@ Run the repeatable evaluation with:
 ```
 
 On this small functional set at threshold `0.5`, the measured results are precision `1.0000`, recall `0.5714`, and F1 `0.7273` (4 true positives, 3 true negatives, 0 false positives, and 3 false negatives). Do not present these figures as general model accuracy; a larger independently labeled video dataset is required for that claim.
+
+For every uploaded clip, Sentrix automatically attaches the synchronized generated sensor reading
+nearest the candidate after temporal CV clustering and before verification. The full frame timeline
+is retained for analytics and memory comparison.
+
+For any uploaded footage, start the scan normally. The Operations page shows generated readings live
+and replaces the former upload control with **Download generated JSON** after execution completes.
+Legacy validated profiles remain in `demo_assets/sensor_metadata_cases/` for low-level parser and
+fusion tests. The dashboard preserves the raw fusion probability even when the configured demo
+false-alarm gate forces candidate acceptance, so corroboration, contradiction, freshness decay, and
+guarded overrides remain visible.

@@ -1,11 +1,33 @@
 from datetime import datetime
 
-from sqlalchemy import JSON, DateTime, String
+from sqlalchemy import JSON, Boolean, DateTime, Float, String
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
 
 class Base(DeclarativeBase):
     pass
+
+
+class IncidentReviewRow(Base):
+    __tablename__ = "incident_reviews"
+    incident_id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    organization_id: Mapped[str] = mapped_column(String(36), index=True)
+    reviewer_id: Mapped[str] = mapped_column(String(36))
+    severity: Mapped[str] = mapped_column(String(16))
+    response_action: Mapped[str] = mapped_column(String(16))
+    reason: Mapped[str] = mapped_column(String(2000))
+    false_alarm: Mapped[bool] = mapped_column(Boolean)
+    updated_at: Mapped[str] = mapped_column(String(50))
+
+
+class LearnedThresholdProfileRow(Base):
+    __tablename__ = "learned_threshold_profiles"
+    profile_key: Mapped[str] = mapped_column(String(64), primary_key=True)
+    organization_id: Mapped[str] = mapped_column(String(36), nullable=False, index=True)
+    location: Mapped[str] = mapped_column(String(255), nullable=False)
+    threshold: Mapped[float] = mapped_column(Float, nullable=False)
+    applied_review_versions: Mapped[list[str]] = mapped_column(JSON, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
 
 
 class IncidentRow(Base):
@@ -47,7 +69,9 @@ class VideoRow(Base):
     content_type: Mapped[str] = mapped_column(String(100), nullable=False)
     size_bytes: Mapped[int] = mapped_column(nullable=False)
     organization_id: Mapped[str | None] = mapped_column(String(36), nullable=True, index=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, index=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, index=True
+    )
 
 
 class ProcessingJobRow(Base):
@@ -62,6 +86,8 @@ class ProcessingJobRow(Base):
     progress_percent: Mapped[float] = mapped_column(nullable=False)
     frames_processed: Mapped[int] = mapped_column(nullable=False)
     detections_found: Mapped[int] = mapped_column(nullable=False)
+    sensor_scenario: Mapped[str] = mapped_column(String(100), nullable=False, default="")
+    latest_sensor_sample: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     error_message: Mapped[str | None] = mapped_column(String(1000), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
@@ -72,7 +98,9 @@ class OrganizationRow(Base):
     organization_id: Mapped[str] = mapped_column(String(36), primary_key=True)
     name: Mapped[str] = mapped_column(String(255), nullable=False)
     emergency_contact: Mapped[str] = mapped_column(String(255), nullable=False, default="")
-    notification_preference: Mapped[str] = mapped_column(String(100), nullable=False, default="dashboard")
+    notification_preference: Mapped[str] = mapped_column(
+        String(100), nullable=False, default="dashboard"
+    )
     api_key_last_four: Mapped[str] = mapped_column(String(4), nullable=False, default="")
     api_key_fingerprint: Mapped[str] = mapped_column(String(64), nullable=False, default="")
 
@@ -91,7 +119,9 @@ class SessionRow(Base):
     user_id: Mapped[str] = mapped_column(String(36), nullable=False)
     organization_id: Mapped[str] = mapped_column(String(36), nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
-    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, index=True)
+    expires_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, index=True
+    )
 
 
 class CameraRow(Base):

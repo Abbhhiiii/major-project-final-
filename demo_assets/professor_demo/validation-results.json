@@ -1,0 +1,221 @@
+{
+  "model_sha256": "182bf67a9efbdf81b918f35143b6e86f53b0faa04678533f924290840cf06609",
+  "cv_threshold": 0.5,
+  "frame_sample_fps": 2.0,
+  "results": [
+    {
+      "video": "01_all_sources_agree.mp4",
+      "outcome": "verified",
+      "candidate_sources": [
+        "visual",
+        "smoke",
+        "audio"
+      ],
+      "verification": {
+        "probability": 0.9803,
+        "verified": true,
+        "threshold": 0.68,
+        "override_source": null,
+        "contributions": {
+          "prior": -0.4,
+          "visual": 1.8284,
+          "smoke": 1.0265,
+          "audio": 1.0038,
+          "agreement_bonus": 0.45
+        },
+        "evidence": [
+          "visual probability 0.916 from detector confidence and impact",
+          "smoke probability 0.840, effective reliability 0.943",
+          "audio probability 0.880, effective reliability 0.943",
+          "independent evidence agreement bonus applied"
+        ]
+      }
+    },
+    {
+      "video": "02_smoke_only_override.mp4",
+      "outcome": "verified",
+      "candidate_sources": [
+        "smoke"
+      ],
+      "verification": {
+        "probability": 0.9,
+        "verified": true,
+        "threshold": 0.68,
+        "override_source": "smoke",
+        "contributions": {
+          "prior": -0.4,
+          "visual": -2.75,
+          "smoke": 1.4189,
+          "audio": -1.0567
+        },
+        "evidence": [
+          "visual probability 0.000 from detector confidence and impact",
+          "smoke probability 0.970, effective reliability 0.943",
+          "audio probability 0.100, effective reliability 0.943",
+          "guarded override activated by smoke sensor"
+        ]
+      }
+    },
+    {
+      "video": "03_audio_only_override.mp4",
+      "outcome": "verified",
+      "candidate_sources": [
+        "audio"
+      ],
+      "verification": {
+        "probability": 0.9,
+        "verified": true,
+        "threshold": 0.68,
+        "override_source": "audio",
+        "contributions": {
+          "prior": -0.4,
+          "visual": -2.75,
+          "smoke": -1.2076,
+          "audio": 1.268
+        },
+        "evidence": [
+          "visual probability 0.000 from detector confidence and impact",
+          "smoke probability 0.100, effective reliability 0.943",
+          "audio probability 0.980, effective reliability 0.943",
+          "guarded override activated by audio sensor"
+        ]
+      }
+    },
+    {
+      "video": "04_borderline_visual_corroborated.mp4",
+      "outcome": "verified",
+      "candidate_sources": [
+        "visual",
+        "smoke",
+        "audio"
+      ],
+      "verification": {
+        "probability": 0.9115,
+        "verified": true,
+        "threshold": 0.68,
+        "override_source": null,
+        "contributions": {
+          "prior": -0.4,
+          "visual": 0.6788,
+          "smoke": 0.7849,
+          "audio": 0.8189,
+          "agreement_bonus": 0.45
+        },
+        "evidence": [
+          "visual probability 0.686 from detector confidence and impact",
+          "smoke probability 0.760, effective reliability 0.943",
+          "audio probability 0.810, effective reliability 0.943",
+          "independent evidence agreement bonus applied"
+        ]
+      }
+    },
+    {
+      "video": "05_visual_contradicted.mp4",
+      "outcome": "suppressed",
+      "candidate_sources": [
+        "visual"
+      ],
+      "verification": {
+        "probability": 0.1423,
+        "verified": false,
+        "threshold": 0.68,
+        "override_source": null,
+        "contributions": {
+          "prior": -0.4,
+          "visual": 1.8284,
+          "smoke": -1.268,
+          "audio": -1.0567,
+          "contradiction_penalty": -0.9
+        },
+        "evidence": [
+          "visual probability 0.916 from detector confidence and impact",
+          "smoke probability 0.080, effective reliability 0.943",
+          "audio probability 0.100, effective reliability 0.943",
+          "reliable smoke and audio evidence contradict the visual alert"
+        ]
+      }
+    },
+    {
+      "video": "06_stale_sensor_spike.mp4",
+      "outcome": "no_candidate",
+      "candidate_sources": [],
+      "verification": null
+    },
+    {
+      "video": "07_unreliable_sensor_spike.mp4",
+      "outcome": "no_candidate",
+      "candidate_sources": [],
+      "verification": null
+    },
+    {
+      "video": "08_missing_sensors_visual_only.mp4",
+      "outcome": "verified",
+      "candidate_sources": [
+        "visual"
+      ],
+      "verification": {
+        "probability": 0.8067,
+        "verified": true,
+        "threshold": 0.68,
+        "override_source": null,
+        "contributions": {
+          "prior": -0.4,
+          "visual": 1.8284
+        },
+        "evidence": [
+          "visual probability 0.916 from detector confidence and impact"
+        ]
+      }
+    },
+    {
+      "video": "09_normal_scene.mp4",
+      "outcome": "no_candidate",
+      "candidate_sources": [],
+      "verification": null
+    },
+    {
+      "video": "10_sensor_candidate_rejected.mp4",
+      "outcome": "suppressed",
+      "candidate_sources": [
+        "smoke"
+      ],
+      "verification": {
+        "probability": 0.0307,
+        "verified": false,
+        "threshold": 0.68,
+        "override_source": null,
+        "contributions": {
+          "prior": -0.4,
+          "visual": -2.75,
+          "smoke": 0.7548,
+          "audio": -1.0567
+        },
+        "evidence": [
+          "visual probability 0.000 from detector confidence and impact",
+          "smoke probability 0.750, effective reliability 0.943",
+          "audio probability 0.100, effective reliability 0.943"
+        ]
+      }
+    },
+    {
+      "video": "11_borderline_visual_only.mp4",
+      "outcome": "suppressed",
+      "candidate_sources": [
+        "visual"
+      ],
+      "verification": {
+        "probability": 0.5693,
+        "verified": false,
+        "threshold": 0.68,
+        "override_source": null,
+        "contributions": {
+          "prior": -0.4,
+          "visual": 0.6788
+        },
+        "evidence": [
+          "visual probability 0.686 from detector confidence and impact"
+        ]
+      }
+    }
+  ]
+}

@@ -1,0 +1,19 @@
+{
+  "schema_version": 1,
+  "scenario": "Fresh, reliable smoke and audio signals strongly corroborate the visual event",
+  "candidate_timestamp_ms": 1500,
+  "sensors": [
+    {
+      "sensor_type": "smoke",
+      "probability": 0.86,
+      "reliability": 0.94,
+      "age_ms": 120
+    },
+    {
+      "sensor_type": "audio",
+      "probability": 0.89,
+      "reliability": 0.95,
+      "age_ms": 80
+    }
+  ]
+}

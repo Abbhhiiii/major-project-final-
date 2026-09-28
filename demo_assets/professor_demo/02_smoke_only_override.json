@@ -1,0 +1,28 @@
+{
+  "schema_version": 1,
+  "clips": {
+    "02_smoke_only_override.mp4": {
+      "scenario": "02_smoke_only_override",
+      "candidate_timestamp_ms": 1500,
+      "sensors": [
+        {
+          "sensor_type": "smoke",
+          "probability": 0.97,
+          "reliability": 0.95,
+          "age_ms": 100
+        },
+        {
+          "sensor_type": "audio",
+          "probability": 0.1,
+          "reliability": 0.95,
+          "age_ms": 100
+        }
+      ],
+      "synthetic": true,
+      "source_clip": "neutral-gray.mp4",
+      "video_sha256": "e5454480137b37c1088d8f67976f53c01dd6b3bfe974b2d73c65fba0b128b738",
+      "expected_outcome": "verified",
+      "expected_override": "smoke"
+    }
+  }
+}

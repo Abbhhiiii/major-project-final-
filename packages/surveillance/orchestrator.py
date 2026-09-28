@@ -10,8 +10,16 @@ from .agents import (
     RetrievalAgent,
     VerificationAgent,
 )
-from .domain.models import Detection, PipelineResult, Stage, StageEvent, structured
-from .ports import ReasoningService
+from .domain.models import (
+    Detection,
+    LearnedThresholdProfile,
+    PipelineResult,
+    Stage,
+    StageEvent,
+    structured,
+)
+from .ports import ReasoningService, ThresholdProfileRepository
+from .verification import AdaptiveThresholdModel
 
 
 class IncidentOrchestrator:
@@ -24,6 +32,8 @@ class IncidentOrchestrator:
         execution: ExecutionAgent,
         memory: MemoryAgent,
         audit: AuditAgent | None = None,
+        adaptive_threshold: AdaptiveThresholdModel | None = None,
+        threshold_profiles: ThresholdProfileRepository | None = None,
     ) -> None:
         self.verification = verification
         self.retrieval = retrieval
@@ -32,6 +42,8 @@ class IncidentOrchestrator:
         self.execution = execution
         self.memory = memory
         self.audit = audit
+        self.adaptive_threshold = adaptive_threshold or AdaptiveThresholdModel()
+        self.threshold_profiles = threshold_profiles
 
     def process(
         self, detection: Detection, on_event: Callable[[StageEvent], None] | None = None
@@ -50,8 +62,29 @@ class IncidentOrchestrator:
     def stream(self, detection: Detection) -> Iterator[StageEvent]:
         yield StageEvent(Stage.DETECTION, structured(detection))
         verification = self.verification.run(detection)
-        yield StageEvent(Stage.VERIFICATION, structured(verification))
         context = self.retrieval.run(detection)
+        profile = (
+            self.threshold_profiles.get(detection.organization_id, detection.location)
+            if self.threshold_profiles is not None
+            else None
+        )
+        verification = self.adaptive_threshold.apply(
+            verification,
+            context,
+            detection.occurred_at,
+            learned_baseline=profile.threshold if profile else None,
+            applied_review_versions=profile.applied_review_versions if profile else (),
+        )
+        if self.threshold_profiles is not None and verification.threshold_profile_updated:
+            self.threshold_profiles.save(
+                LearnedThresholdProfile(
+                    organization_id=detection.organization_id or "__local__",
+                    location=detection.location,
+                    threshold=verification.decision_threshold,
+                    applied_review_versions=verification.threshold_applied_review_versions,
+                )
+            )
+        yield StageEvent(Stage.VERIFICATION, structured(verification))
         yield StageEvent(Stage.RETRIEVAL, structured(context))
         decision = self.reasoning.run(detection, verification, context)
         yield StageEvent(Stage.REASONING, structured(decision))
@@ -61,5 +94,5 @@ class IncidentOrchestrator:
         yield StageEvent(Stage.EXECUTION, structured(execution))
         memory = self.memory.run(detection, decision)
         if self.audit is not None:
-            self.audit.run(memory, context, decision, plan, execution)
+            self.audit.run(memory, context, decision, plan, execution, detection, verification)
         yield StageEvent(Stage.MEMORY, structured(memory))

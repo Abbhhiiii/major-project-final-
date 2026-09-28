@@ -17,30 +17,46 @@ from .domain.models import (
     structured,
 )
 from .ports import ActionExecutor, AuditRepository, ContextRepository, MemoryRepository
+from .verification import EvidenceFusionModel
 
 logger = logging.getLogger(__name__)
 
 
 class VerificationAgent:
-    def __init__(self, force_accept: bool = False) -> None:
+    def __init__(
+        self, force_accept: bool = False, fusion_model: EvidenceFusionModel | None = None
+    ) -> None:
         self.force_accept = force_accept
+        self.fusion_model = fusion_model or EvidenceFusionModel()
 
     def run(self, detection: Detection) -> Verification:
-        score = round(
-            detection.confidence * 0.5
-            + detection.impact_score * 0.35
-            + (0.15 if detection.stopped_vehicle else 0),
-            3,
-        )
-        evidence = [f"detector confidence {detection.confidence:.2f}"]
-        if detection.impact_score >= 0.6:
-            evidence.append("high visual impact score")
+        result = self.fusion_model.evaluate(detection)
+        evidence = list(result.evidence)
         if detection.stopped_vehicle:
             evidence.append("vehicle remained stopped")
         if self.force_accept:
             evidence.append("false-alarm gate forced accepted by demo configuration")
-            return Verification(detection.detection_id, True, max(score, 0.99), tuple(evidence))
-        return Verification(detection.detection_id, score >= 0.65, score, tuple(evidence))
+            return Verification(
+                detection_id=detection.detection_id,
+                verified=True,
+                score=result.probability,
+                evidence=tuple(evidence),
+                fused_probability=result.probability,
+                decision_threshold=result.threshold,
+                override_source=result.override_source,
+                contributions=result.contributions,
+                forced_accept=True,
+            )
+        return Verification(
+            detection_id=detection.detection_id,
+            verified=result.verified,
+            score=result.probability,
+            evidence=tuple(evidence),
+            fused_probability=result.probability,
+            decision_threshold=result.threshold,
+            override_source=result.override_source,
+            contributions=result.contributions,
+        )
 
 
 class RetrievalAgent:
@@ -85,6 +101,9 @@ class ReasoningAgent:
 
 
 class PlanningAgent:
+    def __init__(self, simulation_mode: bool = False) -> None:
+        self.simulation_mode = simulation_mode
+
     def run(
         self, decision: Decision, context: IncidentContext, detection: Detection | None = None
     ) -> IncidentPlan:
@@ -97,6 +116,9 @@ class PlanningAgent:
                 "occurred_at": detection.occurred_at.isoformat(),
                 "severity": decision.severity.value,
                 "rationale": list(decision.rationale),
+                "policies": list(context.policies),
+                "procedures": list(context.procedures),
+                "evidence": [structured(item) for item in context.evidence],
             }
         actions = [
             Action("dashboard_alert", "operations-dashboard", decision.alert_message, details)
@@ -105,16 +127,43 @@ class PlanningAgent:
             actions.append(
                 Action("pdf_report", detection.detection_id, decision.alert_message, details)
             )
+        delivery_targets = context.contacts or (
+            ("demo-emergency-contact",) if self.simulation_mode else ()
+        )
         voice_preferred = any("voice" in preference.lower() for preference in context.preferences)
-        if decision.notify_emergency_services and voice_preferred:
+        if decision.response_action == "call" or (
+            decision.response_action is None
+            and decision.notify_emergency_services
+            and voice_preferred
+        ):
+            voice_message = decision.alert_message
+            if detection is not None and detection.location.lower() not in voice_message.lower():
+                voice_message = f"{voice_message} Location: {detection.location}."
             actions.extend(
                 Action(
                     "voice_alert",
                     contact,
-                    decision.alert_message,
-                    {"detection_id": detection.detection_id if detection else ""},
+                    voice_message,
+                    details,
                 )
-                for contact in context.contacts
+                for contact in delivery_targets
+            )
+        whatsapp_preferred = any(
+            "whatsapp" in preference.lower() for preference in context.preferences
+        )
+        if decision.response_action == "message" or (
+            decision.response_action is None
+            and decision.notify_emergency_services
+            and whatsapp_preferred
+        ):
+            actions.extend(
+                Action(
+                    "whatsapp_alert",
+                    contact,
+                    decision.alert_message,
+                    details,
+                )
+                for contact in delivery_targets
             )
         return IncidentPlan(tuple(actions))
 
@@ -168,13 +217,19 @@ class AuditAgent:
         decision: Decision,
         plan: IncidentPlan,
         execution: ExecutionResult,
+        detection: Detection | None = None,
+        verification: Verification | None = None,
     ) -> AgentAudit:
         audit = AgentAudit(
             incident_id=memory.incident_id,
             detection_id=memory.detection_id,
             reasoning_provider=decision.provider,
             reasoning_model=decision.model,
-            retrieval=structured(context),
+            retrieval={
+                **structured(context),
+                "scan_snapshot": structured(detection) if detection else {},
+                "verification_snapshot": structured(verification) if verification else {},
+            },
             decision=structured(decision),
             plan=structured(plan),
             execution=structured(execution),

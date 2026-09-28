@@ -1,0 +1,19 @@
+{
+  "schema_version": 1,
+  "scenario": "Raw smoke and audio probabilities are high but very stale readings must not override",
+  "candidate_timestamp_ms": 1500,
+  "sensors": [
+    {
+      "sensor_type": "smoke",
+      "probability": 0.99,
+      "reliability": 0.9,
+      "age_ms": 45000
+    },
+    {
+      "sensor_type": "audio",
+      "probability": 0.98,
+      "reliability": 0.9,
+      "age_ms": 50000
+    }
+  ]
+}

@@ -1,0 +1,19 @@
+{
+  "schema_version": 1,
+  "scenario": "Very high fresh impact audio overrides weak combined evidence while smoke remains low",
+  "candidate_timestamp_ms": 1500,
+  "sensors": [
+    {
+      "sensor_type": "smoke",
+      "probability": 0.1,
+      "reliability": 0.91,
+      "age_ms": 130
+    },
+    {
+      "sensor_type": "audio",
+      "probability": 0.98,
+      "reliability": 0.96,
+      "age_ms": 70
+    }
+  ]
+}

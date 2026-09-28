@@ -1,0 +1,28 @@
+{
+  "schema_version": 1,
+  "clips": {
+    "09_normal_scene.mp4": {
+      "scenario": "09_normal_scene",
+      "candidate_timestamp_ms": 1500,
+      "sensors": [
+        {
+          "sensor_type": "smoke",
+          "probability": 0.05,
+          "reliability": 0.95,
+          "age_ms": 100
+        },
+        {
+          "sensor_type": "audio",
+          "probability": 0.08,
+          "reliability": 0.95,
+          "age_ms": 100
+        }
+      ],
+      "synthetic": true,
+      "source_clip": "neutral-gray.mp4",
+      "video_sha256": "e5454480137b37c1088d8f67976f53c01dd6b3bfe974b2d73c65fba0b128b738",
+      "expected_outcome": "no_candidate",
+      "expected_override": null
+    }
+  }
+}

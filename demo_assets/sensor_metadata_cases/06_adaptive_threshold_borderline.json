@@ -1,0 +1,19 @@
+{
+  "schema_version": 1,
+  "scenario": "Borderline fresh sensor evidence for demonstrating reviewed-memory adaptive threshold movement",
+  "candidate_timestamp_ms": 1500,
+  "sensors": [
+    {
+      "sensor_type": "smoke",
+      "probability": 0.58,
+      "reliability": 0.93,
+      "age_ms": 120
+    },
+    {
+      "sensor_type": "audio",
+      "probability": 0.62,
+      "reliability": 0.95,
+      "age_ms": 80
+    }
+  ]
+}

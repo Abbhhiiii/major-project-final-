@@ -2,7 +2,14 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
-from .domain.models import Action, AgentAudit, Detection, IncidentContext, IncidentMemory
+from .domain.models import (
+    Action,
+    AgentAudit,
+    Detection,
+    IncidentContext,
+    IncidentMemory,
+    LearnedThresholdProfile,
+)
 
 
 @dataclass
@@ -34,9 +41,7 @@ class InMemoryIncidentRepository:
     def save(self, memory: IncidentMemory) -> None:
         self.incidents.append(memory)
 
-    def get(
-        self, incident_id: str, organization_id: str | None = None
-    ) -> IncidentMemory | None:
+    def get(self, incident_id: str, organization_id: str | None = None) -> IncidentMemory | None:
         return next(
             (
                 incident
@@ -73,3 +78,18 @@ class InMemoryAuditRepository:
 
     def get_for_incident(self, incident_id: str) -> AgentAudit | None:
         return next((item for item in self.audits if item.incident_id == incident_id), None)
+
+
+@dataclass
+class InMemoryThresholdProfileRepository:
+    profiles: dict[tuple[str, str], LearnedThresholdProfile] = field(default_factory=dict)
+
+    def get(self, organization_id: str | None, location: str) -> LearnedThresholdProfile | None:
+        return self.profiles.get(self._key(organization_id, location))
+
+    def save(self, profile: LearnedThresholdProfile) -> None:
+        self.profiles[self._key(profile.organization_id, profile.location)] = profile
+
+    @staticmethod
+    def _key(organization_id: str | None, location: str) -> tuple[str, str]:
+        return organization_id or "__local__", " ".join(location.strip().casefold().split())

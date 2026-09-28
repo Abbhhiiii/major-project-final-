@@ -1,6 +1,13 @@
-import type { AgentAudit, AnalyticsSummary, DeliveryRecord, DetectionInput, IncidentHistory, OnboardingSummary, ProcessingJob, StageEvent, VideoAsset } from './types'
+import type { AgentAudit, AnalyticsSummary, DeliveryRecord, DetectionInput, GeoPlace, IncidentHistory, OnboardingSummary, ProcessingJob, SensorFrameSample, SensorScenario, StageEvent, VideoAsset } from './types'
 
 const API_URL = import.meta.env.VITE_API_URL ?? 'http://127.0.0.1:8000'
+type Review = { severity: string; response_action: string; reason: string; false_alarm: boolean }
+export const getReview = (id: string) => getJson<Review | null>(`/api/v1/incidents/${id}/review`)
+export async function saveReview(id: string, review: Review) {
+  const response = await fetch(`${API_URL}/api/v1/incidents/${id}/review`, { method: 'PUT', headers: { ...authHeaders(), 'Content-Type': 'application/json' }, body: JSON.stringify(review) })
+  if (!response.ok) throw new Error('Could not save review. Check the fields and your session.')
+  return response.json()
+}
 const authHeaders = (): Record<string, string> => {
   const token = localStorage.getItem('sentinel_token')
   return token ? { Authorization: `Bearer ${token}` } : {}
@@ -39,29 +46,59 @@ export async function uploadVideo(file: File): Promise<VideoAsset> {
   return { ...asset, playback_url: URL.createObjectURL(file) }
 }
 
+export async function downloadSensorStream(videoId: string) {
+  const response = await fetch(`${API_URL}/api/v1/videos/${videoId}/sensor-stream`, { headers: authHeaders() })
+  if (!response.ok) {
+    const error = await response.json().catch(() => null) as { detail?: string } | null
+    throw new Error(error?.detail ?? 'Generated sensor stream is unavailable')
+  }
+  const url = URL.createObjectURL(await response.blob())
+  const anchor = document.createElement('a')
+  anchor.href = url
+  anchor.download = `sentrix-sensor-stream-${videoId.slice(0, 8)}.json`
+  anchor.click()
+  window.setTimeout(() => URL.revokeObjectURL(url), 1000)
+}
+
 export async function startVideoProcessing(
   videoId: string,
   cameraId: string,
   location: string,
+  sensorScenario: SensorScenario,
 ): Promise<ProcessingJob> {
   const response = await fetch(`${API_URL}/api/v1/videos/${videoId}/process`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', ...authHeaders() },
-    body: JSON.stringify({ camera_id: cameraId, location }),
+    body: JSON.stringify({ camera_id: cameraId, location, sensor_scenario: sensorScenario }),
   })
   if (!response.ok) throw new Error(`Could not start scan (${response.status})`)
   return response.json() as Promise<ProcessingJob>
 }
 
+export async function searchLocations(query: string): Promise<GeoPlace[]> {
+  const response = await fetch(`${API_URL}/api/v1/locations/search?q=${encodeURIComponent(query)}`, { headers: authHeaders() })
+  if (!response.ok) throw new Error('Map search is temporarily unavailable')
+  const payload = await response.json() as { items: GeoPlace[] }
+  return payload.items
+}
+
+export async function reverseLocation(latitude: number, longitude: number): Promise<GeoPlace> {
+  const params = new URLSearchParams({ latitude: String(latitude), longitude: String(longitude) })
+  const response = await fetch(`${API_URL}/api/v1/locations/reverse?${params}`, { headers: authHeaders() })
+  if (!response.ok) throw new Error('Could not resolve that map point')
+  return response.json() as Promise<GeoPlace>
+}
+
 export function observeProcessingJob(
   jobId: string,
   onProgress: (job: ProcessingJob) => void,
-  onPipelineEvent: (event: StageEvent) => void,
+  onPipelineEvent: (event: StageEvent) => void | Promise<void>,
+  onSensorFrame: (sample: SensorFrameSample) => void = () => undefined,
 ): Promise<ProcessingJob> {
-  return observeAuthenticatedJob(jobId, onProgress, onPipelineEvent)
+  return observeAuthenticatedJob(jobId, onProgress, onPipelineEvent, onSensorFrame)
 }
 
-async function observeAuthenticatedJob(jobId: string, onProgress: (job: ProcessingJob) => void, onPipelineEvent: (event: StageEvent) => void): Promise<ProcessingJob> {
+async function observeAuthenticatedJob(jobId: string, onProgress: (job: ProcessingJob) => void, onPipelineEvent: (event: StageEvent) => void | Promise<void>, onSensorFrame: (sample: SensorFrameSample) => void): Promise<ProcessingJob> {
   const response = await fetch(`${API_URL}/api/v1/processing-jobs/${jobId}/events`, { headers: { Accept: 'text/event-stream', ...authHeaders() } })
   if (!response.ok || !response.body) throw new Error(`Could not observe scan (${response.status})`)
   const reader = response.body.pipeThrough(new TextDecoderStream()).getReader()
@@ -75,7 +112,8 @@ async function observeAuthenticatedJob(jobId: string, onProgress: (job: Processi
       const event = lines.find((line) => line.startsWith('event: '))?.slice(7)
       const data = lines.find((line) => line.startsWith('data: '))?.slice(6)
       if (!data) continue
-      if (event === 'pipeline') onPipelineEvent(JSON.parse(data) as StageEvent)
+      if (event === 'sensor') onSensorFrame(JSON.parse(data) as SensorFrameSample)
+      if (event === 'pipeline') await onPipelineEvent(JSON.parse(data) as StageEvent)
       if (event === 'progress') {
         const job = JSON.parse(data) as ProcessingJob; onProgress(job)
         if (job.status === 'completed' || job.status === 'failed' || job.status === 'cancelled') terminal = job

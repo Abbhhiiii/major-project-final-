@@ -12,6 +12,7 @@ from .domain.models import (
     Detection,
     IncidentContext,
     IncidentMemory,
+    LearnedThresholdProfile,
     Verification,
 )
 from .perception.models import (
@@ -45,7 +46,9 @@ class DeliveryRepository(Protocol):
 class MemoryRepository(Protocol):
     def save(self, memory: IncidentMemory) -> None: ...
 
-    def get(self, incident_id: str, organization_id: str | None = None) -> IncidentMemory | None: ...
+    def get(
+        self, incident_id: str, organization_id: str | None = None
+    ) -> IncidentMemory | None: ...
 
     def list_recent(
         self, limit: int = 50, organization_id: str | None = None
@@ -60,12 +63,20 @@ class AuditRepository(Protocol):
     def get_for_incident(self, incident_id: str) -> AgentAudit | None: ...
 
 
+class ThresholdProfileRepository(Protocol):
+    def get(self, organization_id: str | None, location: str) -> LearnedThresholdProfile | None: ...
+
+    def save(self, profile: LearnedThresholdProfile) -> None: ...
+
+
 class VideoRepository(Protocol):
     def save(self, asset: VideoAsset) -> None: ...
 
     def get(self, video_id: str, organization_id: str | None = None) -> VideoAsset | None: ...
 
-    def list_recent(self, limit: int = 50, organization_id: str | None = None) -> Sequence[VideoAsset]: ...
+    def list_recent(
+        self, limit: int = 50, organization_id: str | None = None
+    ) -> Sequence[VideoAsset]: ...
 
 
 class VideoStorage(Protocol):

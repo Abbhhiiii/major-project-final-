@@ -33,6 +33,20 @@ scripts/backup_and_reset_demo.sh --confirm
 
 The command moves the database, uploads, policies, and reports into `.demo-backups/<timestamp>` instead of deleting them.
 
-## Known deferred integration
+## Live Twilio activation
 
-Twilio remains disabled until a Twilio-owned voice-capable sender number is available and a real call passes validation.
+1. Rotate any credential previously shared in chat, then create a Standard API key under the same
+   Twilio Account SID. Store only the new SID and secret in `.env`.
+2. Claim/buy a voice-capable Twilio number (or configure a verified outgoing caller ID) and set it as
+   `SURVEILLANCE_TWILIO_FROM_NUMBER`. Trial accounts must also verify the destination number and
+   enable the destination country under Voice geographic permissions.
+3. Activate the WhatsApp testing environment, join it from the demo phone, and send a fresh inbound
+   message immediately before the demo to open the 24-hour free-form media window.
+4. Set the WhatsApp test sender, expose port 8000 through a public HTTPS tunnel, set that origin as
+   `SURVEILLANCE_PUBLIC_BASE_URL`, and generate a long random `SURVEILLANCE_REPORT_LINK_SECRET`.
+5. Enable both Twilio flags, run `.venv/bin/python -m scripts.check_twilio_setup`, then perform one
+   controlled call case and one controlled message case. Only after both reach the phone should the
+   corresponding `*_LIVE_VALIDATED` flags be set to `true`.
+
+The message branch sends Groq's incident text, retrieved policy procedures, and the generated PDF.
+The call branch speaks Groq's incident text and guarantees that the camera location is included.

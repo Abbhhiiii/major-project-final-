@@ -1,4 +1,5 @@
 import { Icon } from './Icon'
+import { SentrixLogo } from './SentrixLogo'
 
 type LandingPageProps = {
   onLogin: () => void
@@ -18,16 +19,16 @@ export function LandingPage({ onLogin, onGetStarted }: LandingPageProps) {
   return <div className="landing-page">
     <div className="landing-orb landing-orb-one" /><div className="landing-orb landing-orb-two" />
     <header className="landing-header">
-      <a className="landing-brand" href="#top"><span className="landing-brand-mark"><Icon name="shield" /></span><span>Sentrix</span></a>
+      <a className="landing-brand" href="#top"><SentrixLogo /></a>
       <nav className="landing-nav" aria-label="Main navigation"><a href="#overview">Overview</a><a href="#process">How it works</a><a href="#features">Features</a><button onClick={onLogin}>Log in</button></nav>
       <button className="landing-pill" onClick={onGetStarted}>Get started <span>↗</span></button>
     </header>
 
     <main id="top">
       <section className="landing-hero" id="overview">
-        <p className="landing-kicker landing-reveal">Context-aware · Risk-aware surveillance</p>
+        <p className="landing-kicker landing-reveal">AI surveillance framework</p>
         <h1 className="landing-reveal landing-delay-1">Observe<span>.</span> Understand<span>.</span><br />Respond<span>.</span></h1>
-        <p className="landing-hero-copy landing-reveal landing-delay-2">Turn CCTV footage into verified, context-aware risk intelligence—with every decision visible and accountable.</p>
+        <p className="landing-hero-copy landing-reveal landing-delay-2">Sentrix is a framework for building context-aware, risk-aware AI surveillance—from multimodal evidence to an explainable response.</p>
         <div className="landing-hero-actions landing-reveal landing-delay-2"><button className="landing-primary" onClick={onGetStarted}>Start monitoring <span>↗</span></button><a href="#process">See how it works <span>↓</span></a></div>
         <div className="landing-divider landing-reveal landing-delay-3"><span /><i><Icon name="spark" /></i><span /></div>
         <div className="landing-product-grid landing-reveal landing-delay-3 landing-opening-cards">
@@ -64,6 +65,6 @@ export function LandingPage({ onLogin, onGetStarted }: LandingPageProps) {
 
       <section className="landing-cta"><div><p>Ready when every second matters.</p><h2>Turn surveillance into<br />a response system<span>.</span></h2></div><button onClick={onGetStarted}>Create your workspace <span>↗</span></button><div className="cta-rings" /></section>
     </main>
-    <footer className="landing-footer"><a className="landing-brand" href="#top"><span className="landing-brand-mark"><Icon name="shield" /></span><span>Sentrix</span></a><p>Context-aware risk intelligence, from evidence to action.</p><button onClick={onLogin}>Operator login ↗</button></footer>
+    <footer className="landing-footer"><a className="landing-brand" href="#top"><SentrixLogo /></a><p>An AI surveillance framework, from evidence to action.</p><button onClick={onLogin}>Operator login ↗</button></footer>
   </div>
 }

@@ -18,7 +18,7 @@ class OpenCVFrameReader:
         source_fps = capture.get(cv2.CAP_PROP_FPS) or 25.0
         total_source_frames = int(capture.get(cv2.CAP_PROP_FRAME_COUNT))
         interval = max(1, round(source_fps / sample_fps))
-        expected = max(1, (total_source_frames + interval - 1) // interval)
+        expected = max(1, total_source_frames)
 
         def read_frames() -> Iterator[VideoFrame]:
             source_index = 0
@@ -27,9 +27,13 @@ class OpenCVFrameReader:
                     ok, image = capture.read()
                     if not ok:
                         break
-                    if source_index % interval == 0:
-                        timestamp_ms = round(source_index / source_fps * 1000)
-                        yield VideoFrame(source_index, timestamp_ms, image)
+                    timestamp_ms = round(source_index / source_fps * 1000)
+                    yield VideoFrame(
+                        source_index,
+                        timestamp_ms,
+                        image,
+                        analyze_visual=source_index % interval == 0,
+                    )
                     source_index += 1
             finally:
                 capture.release()

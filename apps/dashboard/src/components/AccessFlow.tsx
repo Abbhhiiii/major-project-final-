@@ -1,13 +1,15 @@
 import { FormEvent, useState } from 'react'
 
 import { authenticate, configureOnboarding, uploadPolicy } from '../api'
-import { Icon } from './Icon'
+import { LocationMapPicker } from './LocationMapPicker'
+import { SentrixLogo } from './SentrixLogo'
 
 export function AccessFlow({ initialMode = 'signup', onBack, onReady }: { initialMode?: 'login' | 'signup'; onBack: () => void; onReady: () => void }) {
   const [mode, setMode] = useState<'login' | 'signup'>(initialMode)
   const [step, setStep] = useState<'auth' | 'setup'>('auth')
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
+  const [cameraLocation, setCameraLocation] = useState('')
 
   const submitAuth = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault(); setBusy(true); setError('')
@@ -17,6 +19,7 @@ export function AccessFlow({ initialMode = 'signup', onBack, onReady }: { initia
 
   const submitSetup = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault(); setBusy(true); setError('')
+    if (!cameraLocation) { setError('Choose the camera location on the map.'); setBusy(false); return }
     const form = new FormData(event.currentTarget)
     const policy = form.get('policy') as File
     try {
@@ -29,12 +32,12 @@ export function AccessFlow({ initialMode = 'signup', onBack, onReady }: { initia
   return <main className="access-page">
     <button className="access-back" onClick={onBack}>← Back to home</button>
     <section className="access-shell">
-      <aside className="access-story"><div className="access-brand"><span><Icon name="shield" /></span>Sentrix</div><div><p>Context to action</p><h2>Every signal.<br />One clear response<span>.</span></h2><div className="access-pipeline"><div className="complete"><b>01</b><span>Detect risk signal</span><i>✓</i></div><div className="complete"><b>02</b><span>Verify context</span><i>✓</i></div><div className="current"><b>03</b><span>Apply policy</span><i>•••</i></div><div><b>04</b><span>Coordinate action</span><i>○</i></div></div></div><small>Context-aware · Risk-aware · Auditable</small></aside>
+      <aside className="access-story"><div className="access-brand"><SentrixLogo inverse /></div><div><p>AI surveillance framework</p><h2>Every signal.<br />One clear response<span>.</span></h2><div className="access-pipeline"><div className="complete"><b>01</b><span>Detect risk signal</span><i>✓</i></div><div className="complete"><b>02</b><span>Verify context</span><i>✓</i></div><div className="current"><b>03</b><span>Apply policy</span><i>•••</i></div><div><b>04</b><span>Coordinate action</span><i>○</i></div></div></div><small>Multimodal · Explainable · Auditable</small></aside>
       <div className="access-form-wrap">
-        <div className="access-mobile-brand"><span><Icon name="shield" /></span>Sentrix</div>
+        <div className="access-mobile-brand"><SentrixLogo /></div>
         <p className="access-kicker">{step === 'auth' ? 'Secure operator access' : 'One final step'}</p>
         <h1>{step === 'auth' ? mode === 'signup' ? 'Create your workspace.' : 'Welcome back.' : 'Connect your site.'}</h1>
-        <p className="access-copy">{step === 'auth' ? mode === 'signup' ? 'Set up a private workspace for your cameras, policies, and incident response.' : 'Sign in to continue to your operations center.' : 'Register a camera and upload the policy your agent must follow.'}</p>
+        <p className="access-copy">{step === 'auth' ? mode === 'signup' ? 'Create a private Sentrix AI surveillance framework workspace for cameras, policies, and incident response.' : 'Sign in to continue to your Sentrix framework workspace.' : 'Register a camera and upload the policy your surveillance agent must follow.'}</p>
         {error && <div className="mt-5 rounded-lg border border-red-400/20 bg-red-400/8 px-3 py-2 text-sm text-red-300">{error}</div>}
         {step === 'auth' ? <form className="access-form" onSubmit={submitAuth}>
           {mode === 'signup' && <Field label="Organization name" name="organization_name" placeholder="Metro Safety Lab" />}
@@ -43,9 +46,9 @@ export function AccessFlow({ initialMode = 'signup', onBack, onReady }: { initia
           <button className="access-submit" disabled={busy}>{busy ? 'Please wait…' : mode === 'signup' ? 'Create workspace ↗' : 'Sign in ↗'}</button>
           <button type="button" className="access-switch" onClick={() => setMode(mode === 'signup' ? 'login' : 'signup')}>{mode === 'signup' ? 'Already registered? Sign in' : 'New to Sentrix? Create a workspace'}</button>
         </form> : <form className="access-form access-setup" onSubmit={submitSetup}>
-          <Field label="Camera name" name="camera_name" placeholder="Perimeter Camera 7" /><Field label="Camera location" name="camera_location" placeholder="North perimeter" />
+          <Field label="Camera name" name="camera_name" placeholder="Perimeter Camera 7" /><div className="access-span"><label className="field-label">Camera location</label><LocationMapPicker name="camera_location" value={cameraLocation} onChange={setCameraLocation} /></div>
           <Field label="Emergency contact" name="emergency_contact" placeholder="+91 00000 00000" /><Field label="Mock agent API key" name="agent_api_key" type="password" placeholder="sk-demo-••••••••" />
-          <input type="hidden" name="notification_preference" value="voice alert for high-severity incidents" />
+          <input type="hidden" name="notification_preference" value="voice and WhatsApp alerts for high-severity incidents" />
           <label className="field-label access-span">Policy PDF<input required name="policy" type="file" accept="application/pdf" className="field-input" /></label>
           <button className="access-submit access-span" disabled={busy}>{busy ? 'Reading policy…' : 'Finish setup and open dashboard ↗'}</button>
         </form>}

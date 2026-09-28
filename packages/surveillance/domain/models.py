@@ -14,6 +14,40 @@ class Severity(StrEnum):
     CRITICAL = "critical"
 
 
+@dataclass(frozen=True)
+class SensorReading:
+    """A normalized auxiliary-sensor probability with data-quality metadata."""
+
+    sensor_type: str
+    probability: float
+    reliability: float = 1.0
+    age_ms: int = 0
+    source: str = "sensor"
+
+    def __post_init__(self) -> None:
+        if not 0 <= self.probability <= 1:
+            raise ValueError("sensor probability must be between 0 and 1")
+        if not 0 <= self.reliability <= 1:
+            raise ValueError("sensor reliability must be between 0 and 1")
+        if self.age_ms < 0:
+            raise ValueError("sensor age_ms cannot be negative")
+
+
+@dataclass(frozen=True)
+class SensorFrameSample:
+    """Synthetic auxiliary-sensor readings synchronized to one decoded video frame."""
+
+    frame_index: int
+    timestamp_ms: int
+    readings: tuple[SensorReading, ...]
+
+    def __post_init__(self) -> None:
+        if self.frame_index < 0 or self.timestamp_ms < 0:
+            raise ValueError("sensor frame index and timestamp must be non-negative")
+        if not self.readings:
+            raise ValueError("sensor frame sample requires at least one reading")
+
+
 class Stage(StrEnum):
     DETECTION = "detection"
     VERIFICATION = "verification"
@@ -37,6 +71,10 @@ class Detection:
     frame_timestamp_ms: int | None = None
     occurred_at: datetime = field(default_factory=lambda: datetime.now(UTC))
     detection_id: str = field(default_factory=lambda: str(uuid4()))
+    sensor_readings: tuple[SensorReading, ...] = ()
+    sensor_timeline: tuple[SensorFrameSample, ...] = ()
+    sensor_scenario: str = ""
+    candidate_sources: tuple[str, ...] = ("visual",)
 
     def __post_init__(self) -> None:
         if not 0 <= self.confidence <= 1 or not 0 <= self.impact_score <= 1:
@@ -53,6 +91,33 @@ class Verification:
     verified: bool
     score: float
     evidence: tuple[str, ...]
+    fused_probability: float = 0.0
+    decision_threshold: float = 0.68
+    override_source: str | None = None
+    contributions: dict[str, float] = field(default_factory=dict)
+    forced_accept: bool = False
+    base_decision_threshold: float = 0.68
+    threshold_adjustment: float = 0.0
+    threshold_minimum: float = 0.60
+    threshold_maximum: float = 0.76
+    threshold_stabilizer: float = 3.0
+    threshold_maximum_adjustment: float = 0.08
+    threshold_factors: tuple[dict[str, Any], ...] = ()
+    baseline_verified: bool = False
+    adaptive_verified: bool = False
+    default_decision_threshold: float = 0.68
+    threshold_profile_updated: bool = False
+    threshold_new_review_count: int = 0
+    threshold_applied_review_versions: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True)
+class LearnedThresholdProfile:
+    organization_id: str
+    location: str
+    threshold: float
+    applied_review_versions: tuple[str, ...] = ()
+    updated_at: datetime = field(default_factory=lambda: datetime.now(UTC))
 
 
 @dataclass(frozen=True)
@@ -72,6 +137,7 @@ class IncidentContext:
     prior_incident_count: int
     preferences: tuple[str, ...] = ()
     evidence: tuple[RetrievedEvidence, ...] = ()
+    reviewed_incidents: tuple[dict[str, Any], ...] = ()
 
 
 @dataclass(frozen=True)
@@ -82,6 +148,8 @@ class Decision:
     alert_message: str
     provider: str = "deterministic"
     model: str = "rule-based"
+    response_action: str | None = None
+    memory_influence: dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)

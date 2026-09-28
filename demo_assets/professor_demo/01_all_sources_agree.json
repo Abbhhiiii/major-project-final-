@@ -1,0 +1,28 @@
+{
+  "schema_version": 1,
+  "clips": {
+    "01_all_sources_agree.mp4": {
+      "scenario": "01_all_sources_agree",
+      "candidate_timestamp_ms": 1500,
+      "sensors": [
+        {
+          "sensor_type": "smoke",
+          "probability": 0.84,
+          "reliability": 0.95,
+          "age_ms": 100
+        },
+        {
+          "sensor_type": "audio",
+          "probability": 0.88,
+          "reliability": 0.95,
+          "age_ms": 100
+        }
+      ],
+      "synthetic": true,
+      "source_clip": "image2-accident-test.mp4",
+      "video_sha256": "cf260667bb244317202cc7444ddc3fe7fc85ff6e1792da90d8fb6a93d896d71d",
+      "expected_outcome": "verified",
+      "expected_override": null
+    }
+  }
+}

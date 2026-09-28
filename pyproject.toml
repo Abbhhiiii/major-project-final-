@@ -9,6 +9,7 @@ description = "Local-first agentic road-accident surveillance demo"
 requires-python = ">=3.11"
 dependencies = [
   "alembic>=1.14,<2",
+  "certifi>=2025.1",
   "fastapi>=0.115,<1",
   "groq>=0.31,<1",
   "opencv-python>=4.13,<6",

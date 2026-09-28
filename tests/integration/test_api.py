@@ -1,8 +1,10 @@
+import json
 from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
 from uuid import uuid4
 
+import pytest
 from fastapi.testclient import TestClient
 from fpdf import FPDF
 
@@ -10,11 +12,18 @@ from apps.backend.main import create_app
 from packages.surveillance.agents import ReasoningAgent
 from packages.surveillance.infrastructure.config import Settings
 from packages.surveillance.perception.models import DetectorOutput, VideoFrame
+from packages.surveillance.perception.synthetic_sensors import SyntheticSensorStreamGenerator
 
 
 class StubFrameReader:
     def frames(self, path: Path, sample_fps: float) -> tuple[int, Iterator[VideoFrame]]:
         frames = [VideoFrame(0, 0, object()), VideoFrame(10, 500, object())]
+        return len(frames), iter(frames)
+
+
+class ThirtyFrameReader:
+    def frames(self, path: Path, sample_fps: float) -> tuple[int, Iterator[VideoFrame]]:
+        frames = [VideoFrame(index, index * 33, object()) for index in range(30)]
         return len(frames), iter(frames)
 
 
@@ -27,9 +36,19 @@ class StubAccidentDetector:
         return (DetectorOutput(0.95, 0.91, 2, True, frame.timestamp_ms, location),)
 
 
-def make_client(
-    tmp_path: Path, *, detector: Any = None, frame_reader: Any = None
-) -> TestClient:
+class StubNoDetectionDetector:
+    def detect(
+        self, frame: VideoFrame, *, camera_id: str, location: str
+    ) -> tuple[DetectorOutput, ...]:
+        return ()
+
+
+class MultimodalSyntheticSensorGenerator(SyntheticSensorStreamGenerator):
+    def scenario_for(self, video_id: str, requested: str = "randomized") -> str:
+        return "both_high"
+
+
+def make_client(tmp_path: Path, *, detector: Any = None, frame_reader: Any = None) -> TestClient:
     settings = Settings(
         database_url=f"sqlite:///{tmp_path / 'test.db'}",
         upload_directory=tmp_path / "uploads",
@@ -92,13 +111,17 @@ def test_processing_persists_history_and_updates_analytics(tmp_path: Path) -> No
         assert audit.json()["reasoning_provider"] == "deterministic"
         assert audit.json()["decision"]["alert_message"] == detail.json()["alert_message"]
         assert audit.json()["plan"]["actions"]
+        assert audit.json()["retrieval"]["scan_snapshot"]["confidence"] == 0.94
+        assert audit.json()["retrieval"]["verification_snapshot"]["contributions"]["visual"]
 
         analytics = client.get("/api/v1/analytics/summary").json()
         assert analytics == {"total_incidents": 1, "by_severity": {"critical": 1}}
 
         deliveries = client.get(f"/api/v1/incidents/{incident_id}/deliveries").json()
         assert deliveries["count"] == 2
-        report_record = next(item for item in deliveries["items"] if item["action_kind"] == "pdf_report")
+        report_record = next(
+            item for item in deliveries["items"] if item["action_kind"] == "pdf_report"
+        )
         assert report_record["message"] == detail.json()["alert_message"]
         report = client.get(f"/api/v1/incidents/{incident_id}/report")
         assert report.status_code == 200
@@ -116,11 +139,145 @@ def test_sse_endpoint_emits_dashboard_ready_pipeline_events(tmp_path: Path) -> N
         assert "event: memory" in response.text
 
 
+def test_sse_pipeline_exposes_sensor_fusion_to_reasoning(tmp_path: Path) -> None:
+    with make_client(tmp_path) as client:
+        authorize(client)
+        payload = detection_payload()
+        payload["sensor_readings"] = [
+            {"sensor_type": "smoke", "probability": 0.81, "reliability": 0.9, "age_ms": 100},
+            {"sensor_type": "audio", "probability": 0.86, "reliability": 0.92, "age_ms": 80},
+        ]
+        response = client.post("/api/v1/incidents/process/stream", json=payload)
+        assert response.status_code == 200
+        events = [
+            json.loads(line.removeprefix("data: "))
+            for line in response.text.splitlines()
+            if line.startswith("data: ")
+        ]
+        detection = next(item for item in events if item["stage"] == "detection")
+        verification = next(item for item in events if item["stage"] == "verification")
+        assert {item["sensor_type"] for item in detection["payload"]["sensor_readings"]} == {
+            "smoke",
+            "audio",
+        }
+        assert (
+            verification["payload"]["fused_probability"]
+            >= verification["payload"]["decision_threshold"]
+        )
+        assert "smoke" in verification["payload"]["contributions"]
+
+
 def test_missing_incident_returns_not_found(tmp_path: Path) -> None:
     with make_client(tmp_path) as client:
         authorize(client)
         response = client.get("/api/v1/incidents/not-a-real-id")
         assert response.status_code == 404
+
+
+def test_review_memory_is_retrieved_and_tenant_isolated(tmp_path: Path) -> None:
+    with make_client(tmp_path) as client:
+        authorize(client)
+        first = client.post("/api/v1/incidents/process", json=detection_payload()).json()
+        incident_id = first["incident_id"]
+        review = {
+            "severity": "low",
+            "response_action": "none",
+            "reason": "Operator confirmed planned maintenance activity",
+            "false_alarm": True,
+        }
+        saved = client.put(f"/api/v1/incidents/{incident_id}/review", json=review)
+        assert saved.status_code == 200
+        assert (
+            client.get(f"/api/v1/incidents/{incident_id}/review").json()["reason"]
+            == review["reason"]
+        )
+        second = client.post("/api/v1/incidents/process", json=detection_payload()).json()
+        verification = second["events"][1]["payload"]
+        context = second["events"][2]["payload"]
+        assert verification["base_decision_threshold"] == 0.68
+        assert verification["decision_threshold"] > 0.68
+        assert verification["threshold_adjustment"] > 0
+        assert verification["threshold_factors"][0]["incident_id"] == incident_id
+        assert context["reviewed_incidents"][0]["incident_id"] == incident_id
+        assert context["reviewed_incidents"][0]["reviewed_severity"] == "low"
+        assert context["reviewed_incidents"][0]["verification"]["verified"] is True
+        client.put(
+            f"/api/v1/incidents/{second['incident_id']}/review",
+            json={
+                "severity": "high",
+                "response_action": "message",
+                "reason": "Operator confirmed this newer matching incident needs attention",
+                "false_alarm": False,
+            },
+        )
+        third = client.post("/api/v1/incidents/process", json=detection_payload()).json()
+        best_matches = third["events"][2]["payload"]["reviewed_incidents"]
+        assert len(best_matches) == 1
+        assert best_matches[0]["incident_id"] == second["incident_id"]
+        different = {**detection_payload(), "location": "Another location"}
+        assert (
+            client.post("/api/v1/incidents/process", json=different).json()["events"][2]["payload"][
+                "reviewed_incidents"
+            ]
+            == []
+        )
+        authorize(client)
+        assert client.get(f"/api/v1/incidents/{incident_id}/review").status_code == 404
+        assert client.put(f"/api/v1/incidents/{incident_id}/review", json=review).status_code == 404
+        assert (
+            client.post("/api/v1/incidents/process", json=detection_payload()).json()["events"][2][
+                "payload"
+            ]["reviewed_incidents"]
+            == []
+        )
+
+
+def test_review_memory_exposes_weighted_full_sensor_profile_match(tmp_path: Path) -> None:
+    with make_client(tmp_path) as client:
+        authorize(client)
+        first_payload = {
+            **detection_payload(),
+            "sensor_readings": [
+                {"sensor_type": "smoke", "probability": 0.82, "reliability": 0.9, "age_ms": 100},
+                {"sensor_type": "audio", "probability": 0.76, "reliability": 0.86, "age_ms": 200},
+            ],
+        }
+        first = client.post("/api/v1/incidents/process", json=first_payload).json()
+        client.put(
+            f"/api/v1/incidents/{first['incident_id']}/review",
+            json={
+                "severity": "low",
+                "response_action": "none",
+                "reason": "Operator confirmed a non-emergency maintenance event",
+                "false_alarm": True,
+            },
+        )
+        second_payload = {
+            **first_payload,
+            "confidence": 0.9,
+            "impact_score": 0.89,
+            "sensor_readings": [
+                {"sensor_type": "smoke", "probability": 0.8, "reliability": 0.88, "age_ms": 180},
+                {"sensor_type": "audio", "probability": 0.72, "reliability": 0.84, "age_ms": 260},
+            ],
+        }
+        second = client.post("/api/v1/incidents/process", json=second_payload).json()
+        match = second["events"][2]["payload"]["reviewed_incidents"][0]
+
+        assert match["match_method"] == "weighted_full_sensor_profile_v1"
+        assert match["influence_weight"] == match["similarity"]
+        assert match["similarity"] > 0.9
+        assert {item["key"] for item in match["feature_matches"]} == {
+            "visual.confidence",
+            "visual.impact_score",
+            "sensor.smoke.probability",
+            "sensor.smoke.reliability",
+            "sensor.smoke.freshness",
+            "sensor.audio.probability",
+            "sensor.audio.reliability",
+            "sensor.audio.freshness",
+        }
+        assert sum(item["weight"] for item in match["feature_matches"]) == pytest.approx(1)
 
 
 def test_dashboard_origin_is_allowed_by_cors(tmp_path: Path) -> None:
@@ -170,6 +327,59 @@ def test_video_upload_playback_and_detector_handoff(tmp_path: Path) -> None:
         assert incident["frame_timestamp_ms"] == 12400
 
 
+def test_generated_sensor_stream_can_start_pipeline_without_cv_detection(tmp_path: Path) -> None:
+    with make_client(
+        tmp_path, detector=StubNoDetectionDetector(), frame_reader=ThirtyFrameReader()
+    ) as client:
+        authorize(client)
+        client.app.state.video_processor.sensor_generator = MultimodalSyntheticSensorGenerator()
+        upload = client.post(
+            "/api/v1/videos",
+            files={"video": ("image3-accident-test.mp4", b"demo-video", "video/mp4")},
+        )
+        video_id = upload.json()["video_id"]
+        started = client.post(
+            f"/api/v1/videos/{video_id}/process",
+            json={"camera_id": "cam-sensor", "location": "Sensor Test Zone"},
+        )
+        assert started.status_code == 202
+        history = client.get("/api/v1/incidents").json()
+        assert history["count"] == 1
+        audit = client.get(f"/api/v1/incidents/{history['items'][0]['incident_id']}/audit").json()
+        assert set(audit["retrieval"]["scan_snapshot"]["candidate_sources"]) == {
+            "smoke",
+            "audio",
+        }
+
+
+def test_generated_sensor_stream_is_bound_to_video_audited_and_downloadable(tmp_path: Path) -> None:
+    with make_client(
+        tmp_path, detector=StubNoDetectionDetector(), frame_reader=ThirtyFrameReader()
+    ) as client:
+        authorize(client)
+        client.app.state.video_processor.sensor_generator = MultimodalSyntheticSensorGenerator()
+        video = client.post(
+            "/api/v1/videos",
+            files={"video": ("unmapped-demo.mp4", b"demo-video", "video/mp4")},
+        ).json()
+        started = client.post(
+            f"/api/v1/videos/{video['video_id']}/process",
+            json={"camera_id": "cam-generated-sensor", "location": "Metadata Test Zone"},
+        )
+        assert started.status_code == 202
+        incident = client.get("/api/v1/incidents").json()["items"][0]
+        audit = client.get(f"/api/v1/incidents/{incident['incident_id']}/audit").json()
+        scan = audit["retrieval"]["scan_snapshot"]
+        assert scan["sensor_scenario"] == "both_high"
+        assert len(scan["sensor_timeline"]) == 30
+        assert {item["source"] for item in scan["sensor_readings"]} == {"synthetic_live"}
+        stream = client.get(f"/api/v1/videos/{video['video_id']}/sensor-stream")
+        assert stream.status_code == 200
+        assert stream.json()["frame_count"] == 30
+        assert stream.json()["scenario"] == "both_high"
+        assert len(stream.json()["samples"]) == 30
+
+
 def test_video_upload_rejects_unsupported_content(tmp_path: Path) -> None:
     with make_client(tmp_path) as client:
         authorize(client)
@@ -207,14 +417,45 @@ def test_background_frame_processing_reports_progress_and_creates_incident(
         events = client.get(f"/api/v1/processing-jobs/{job_id}/events")
         assert events.status_code == 200
         assert '"status":"completed"' in events.text
+        assert events.text.count("event: sensor") == 2
+        assert '"frame_index":0' in events.text
+        assert '"frame_index":10' in events.text
         assert events.text.count("event: pipeline") == 7
         assert '"stage":"reasoning"' in events.text
-        assert events.text.index('"stage":"memory"') < events.text.index(
-            '"status":"completed"'
-        )
+        assert events.text.index('"stage":"memory"') < events.text.index('"status":"completed"')
         history = client.get("/api/v1/incidents").json()
         assert history["count"] == 1
         assert history["items"][0]["frame_timestamp_ms"] == 500
+
+
+def test_operator_selected_sensor_scenario_controls_every_generated_frame(
+    tmp_path: Path,
+) -> None:
+    with make_client(
+        tmp_path, detector=StubAccidentDetector(), frame_reader=StubFrameReader()
+    ) as client:
+        authorize(client)
+        video = client.post(
+            "/api/v1/videos",
+            files={"video": ("scenario.mp4", b"video", "video/mp4")},
+        ).json()
+        job = client.post(
+            f"/api/v1/videos/{video['video_id']}/process",
+            json={
+                "camera_id": "cam-scenario",
+                "location": "Selected Map Point",
+                "sensor_scenario": "smoke_high",
+            },
+        ).json()
+
+        completed = client.get(f"/api/v1/processing-jobs/{job['job_id']}").json()
+        stream = client.get(f"/api/v1/videos/{video['video_id']}/sensor-stream").json()
+        assert completed["sensor_scenario"] == "smoke_high"
+        assert stream["scenario"] == "smoke_high"
+        for sample in stream["samples"]:
+            readings = {item["sensor_type"]: item["probability"] for item in sample["readings"]}
+            assert readings["smoke"] >= 0.8
+            assert readings["audio"] <= 0.2
 
 
 def test_video_scan_aggregates_repeated_model_detections_into_one_incident(
@@ -223,11 +464,7 @@ def test_video_scan_aggregates_repeated_model_detections_into_one_incident(
     class RepeatingDetector:
         def detect(self, frame, *, camera_id: str, location: str):
             confidence = 0.7 if frame.timestamp_ms == 0 else 0.95
-            return (
-                DetectorOutput(
-                    confidence, 0.9, 1, False, frame.timestamp_ms, location
-                ),
-            )
+            return (DetectorOutput(confidence, 0.9, 1, False, frame.timestamp_ms, location),)
 
     with make_client(
         tmp_path, detector=RepeatingDetector(), frame_reader=StubFrameReader()
@@ -354,9 +591,10 @@ def test_cancelled_video_job_can_be_retried(tmp_path: Path) -> None:
         retried = client.post(f"/api/v1/processing-jobs/{queued.job_id}/retry")
         assert retried.status_code == 202
         assert retried.json()["job_id"] != queued.job_id
-        assert client.get(
-            f"/api/v1/processing-jobs/{retried.json()['job_id']}"
-        ).json()["status"] == "completed"
+        assert (
+            client.get(f"/api/v1/processing-jobs/{retried.json()['job_id']}").json()["status"]
+            == "completed"
+        )
 
 
 def test_operational_resources_are_isolated_by_organization(tmp_path: Path) -> None:
@@ -392,12 +630,18 @@ def test_operational_resources_are_isolated_by_organization(tmp_path: Path) -> N
         ).json()
 
         assert client.get("/api/v1/incidents", headers=second_headers).json()["count"] == 0
-        assert client.get(
-            f"/api/v1/incidents/{incident['incident_id']}", headers=second_headers
-        ).status_code == 404
-        assert client.get(
-            f"/api/v1/videos/{video['video_id']}/content", headers=second_headers
-        ).status_code == 404
+        assert (
+            client.get(
+                f"/api/v1/incidents/{incident['incident_id']}", headers=second_headers
+            ).status_code
+            == 404
+        )
+        assert (
+            client.get(
+                f"/api/v1/videos/{video['video_id']}/content", headers=second_headers
+            ).status_code
+            == 404
+        )
 
 
 def test_uploaded_policy_is_extracted_and_used_in_reasoning(tmp_path: Path) -> None:
@@ -424,7 +668,9 @@ def test_uploaded_policy_is_extracted_and_used_in_reasoning(tmp_path: Path) -> N
         pdf = FPDF()
         pdf.add_page()
         pdf.set_font("helvetica", size=12)
-        pdf.cell(text="Accident emergency Airport Road policy requires medical dispatch immediately.")
+        pdf.cell(
+            text="Accident emergency Airport Road policy requires medical dispatch immediately."
+        )
         uploaded = client.post(
             "/api/v1/knowledge/policies",
             headers=headers,
@@ -434,7 +680,9 @@ def test_uploaded_policy_is_extracted_and_used_in_reasoning(tmp_path: Path) -> N
         assert uploaded.json()["chunk_count"] == 1
 
         incident = client.post(
-            "/api/v1/incidents/process", headers=headers, json=detection_payload()
+            "/api/v1/incidents/process",
+            headers=headers,
+            json={**detection_payload(), "location": "Unrelated Remote Warehouse"},
         ).json()
         retrieval = incident["events"][2]["payload"]
         reasoning = incident["events"][3]["payload"]
@@ -463,3 +711,38 @@ def test_uploaded_policy_is_extracted_and_used_in_reasoning(tmp_path: Path) -> N
         assert video_incident["events"][2]["payload"]["evidence"][0]["filename"] == (
             "response-policy.pdf"
         )
+
+
+def test_location_search_endpoints_use_configured_map_provider(tmp_path: Path) -> None:
+    class StubGeocoder:
+        def search(self, query: str):
+            return [
+                {
+                    "display_name": f"{query}, Bengaluru",
+                    "latitude": 12.97,
+                    "longitude": 77.59,
+                    "category": "place",
+                }
+            ]
+
+        def reverse(self, latitude: float, longitude: float):
+            return {
+                "display_name": "Selected Junction, Bengaluru",
+                "latitude": latitude,
+                "longitude": longitude,
+                "category": "road",
+            }
+
+    with make_client(tmp_path) as client:
+        authorize(client)
+        client.app.state.geocoder = StubGeocoder()
+        search = client.get("/api/v1/locations/search", params={"q": "Airport Road"})
+        reverse = client.get(
+            "/api/v1/locations/reverse",
+            params={"latitude": 12.97, "longitude": 77.59},
+        )
+
+        assert search.status_code == 200
+        assert search.json()["items"][0]["display_name"] == "Airport Road, Bengaluru"
+        assert reverse.status_code == 200
+        assert reverse.json()["display_name"] == "Selected Junction, Bengaluru"

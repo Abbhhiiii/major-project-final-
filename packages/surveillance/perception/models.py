@@ -33,6 +33,7 @@ class VideoFrame:
     index: int
     timestamp_ms: int
     image: Any
+    analyze_visual: bool = True
 
 
 class ProcessingStatus(StrEnum):
@@ -53,6 +54,8 @@ class ProcessingJob:
     progress_percent: float = 0
     frames_processed: int = 0
     detections_found: int = 0
+    sensor_scenario: str = ""
+    latest_sensor_sample: dict[str, Any] | None = None
     error_message: str | None = None
     job_id: str = field(default_factory=lambda: str(uuid4()))
     created_at: datetime = field(default_factory=lambda: datetime.now(UTC))

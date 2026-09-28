@@ -1,0 +1,28 @@
+{
+  "schema_version": 1,
+  "clips": {
+    "04_borderline_visual_corroborated.mp4": {
+      "scenario": "04_borderline_visual_corroborated",
+      "candidate_timestamp_ms": 1500,
+      "sensors": [
+        {
+          "sensor_type": "smoke",
+          "probability": 0.76,
+          "reliability": 0.95,
+          "age_ms": 100
+        },
+        {
+          "sensor_type": "audio",
+          "probability": 0.81,
+          "reliability": 0.95,
+          "age_ms": 100
+        }
+      ],
+      "synthetic": true,
+      "source_clip": "image7-accident-test.mp4",
+      "video_sha256": "2658d0b148f8f8e44399b647f7e214ed27a1a0aa1ff114bc26b9cf0128d2f1fa",
+      "expected_outcome": "verified",
+      "expected_override": null
+    }
+  }
+}

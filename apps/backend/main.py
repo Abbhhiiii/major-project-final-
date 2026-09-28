@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
+import hmac
 import json
 import logging
 from collections.abc import AsyncIterator
@@ -8,7 +10,7 @@ from contextlib import asynccontextmanager
 from dataclasses import replace
 from datetime import datetime
 from pathlib import Path
-from typing import Annotated
+from typing import Annotated, Literal
 from uuid import uuid4
 
 from fastapi import BackgroundTasks, FastAPI, File, HTTPException, Query, Request, UploadFile
@@ -20,6 +22,7 @@ from starlette.responses import FileResponse, StreamingResponse
 from packages.surveillance.adapters import (
     InMemoryAuditRepository,
     InMemoryIncidentRepository,
+    InMemoryThresholdProfileRepository,
     LocalContextRepository,
     RecordingActionExecutor,
 )
@@ -50,12 +53,18 @@ from packages.surveillance.data.repositories import (
     SqlAlchemyDeliveryRepository,
     SqlAlchemyIncidentRepository,
     SqlAlchemyProcessingJobRepository,
+    SqlAlchemyThresholdProfileRepository,
     SqlAlchemyVideoRepository,
 )
-from packages.surveillance.domain.models import Detection, structured
+from packages.surveillance.data.review_memory import ReviewedContextRepository
+from packages.surveillance.domain.models import Detection, SensorReading, structured
 from packages.surveillance.domain.onboarding import Organization
 from packages.surveillance.infrastructure.config import Settings, get_settings
 from packages.surveillance.infrastructure.execution import ExecutionRouter, PdfReportRenderer
+from packages.surveillance.infrastructure.geocoding import (
+    GeocodingUnavailable,
+    NominatimGeocoder,
+)
 from packages.surveillance.infrastructure.groq_reasoning import (
     GroqReasoningAgent,
     UnconfiguredReasoningAgent,
@@ -78,6 +87,11 @@ from packages.surveillance.perception.models import (
     VideoAsset,
 )
 from packages.surveillance.perception.normalization import DetectionNormalizer
+from packages.surveillance.perception.sensor_candidates import SensorCandidateDetector
+from packages.surveillance.perception.synthetic_sensors import (
+    SyntheticSensorStreamGenerator,
+    SyntheticSensorStreamStore,
+)
 from packages.surveillance.ports import (
     AccidentDetector,
     ActionExecutor,
@@ -86,6 +100,20 @@ from packages.surveillance.ports import (
     MemoryRepository,
     ReasoningService,
 )
+from packages.surveillance.verification import (
+    AdaptiveThresholdModel,
+    EvidenceFusionModel,
+)
+
+
+class SensorReadingRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    sensor_type: str = Field(min_length=1, max_length=50)
+    probability: float = Field(ge=0, le=1)
+    reliability: float = Field(default=1, ge=0, le=1)
+    age_ms: int = Field(default=0, ge=0)
+    source: str = Field(default="api", min_length=1, max_length=100)
 
 
 class DetectionRequest(BaseModel):
@@ -100,6 +128,8 @@ class DetectionRequest(BaseModel):
     source_video_id: str | None = None
     frame_timestamp_ms: int | None = Field(default=None, ge=0)
     occurred_at: datetime | None = None
+    sensor_readings: tuple[SensorReadingRequest, ...] = ()
+    candidate_sources: tuple[str, ...] = ("visual",)
 
 
 class DetectorOutputRequest(BaseModel):
@@ -119,6 +149,9 @@ class ProcessingJobRequest(BaseModel):
 
     camera_id: str = Field(min_length=1)
     location: str = Field(min_length=1)
+    sensor_scenario: Literal["both_high", "both_low", "smoke_high", "audio_high", "randomized"] = (
+        "randomized"
+    )
 
 
 class SignupRequest(BaseModel):
@@ -130,6 +163,14 @@ class SignupRequest(BaseModel):
 class LoginRequest(BaseModel):
     email: str
     password: str
+
+
+class ReviewRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    severity: Literal["low", "medium", "high", "critical"]
+    response_action: Literal["call", "message", "none"]
+    reason: str = Field(min_length=10, max_length=2000)
+    false_alarm: bool = False
 
 
 class OnboardingRequest(BaseModel):
@@ -147,15 +188,21 @@ def build_orchestrator(
     force_accept_verification: bool = False,
     reasoning_service: ReasoningService | None = None,
     audit_repository: AuditRepository | None = None,
+    fusion_model: EvidenceFusionModel | None = None,
+    simulation_mode: bool = False,
+    adaptive_threshold: AdaptiveThresholdModel | None = None,
+    threshold_profiles=None,
 ) -> IncidentOrchestrator:
     return IncidentOrchestrator(
-        VerificationAgent(force_accept_verification),
+        VerificationAgent(force_accept_verification, fusion_model),
         RetrievalAgent(context_repository or LocalContextRepository()),
         reasoning_service or ReasoningAgent(),
-        PlanningAgent(),
+        PlanningAgent(simulation_mode),
         ExecutionAgent(action_executor or RecordingActionExecutor()),
         MemoryAgent(memory_repository or InMemoryIncidentRepository()),
         AuditAgent(audit_repository or InMemoryAuditRepository()),
+        adaptive_threshold,
+        threshold_profiles or InMemoryThresholdProfileRepository(),
     )
 
 
@@ -175,6 +222,7 @@ def create_app(
     repository = SqlAlchemyIncidentRepository(session_factory)
     video_repository = SqlAlchemyVideoRepository(session_factory)
     job_repository = SqlAlchemyProcessingJobRepository(session_factory)
+    threshold_profile_repository = SqlAlchemyThresholdProfileRepository(session_factory)
     onboarding_repository = OnboardingRepository(
         session_factory, runtime_settings.session_ttl_hours
     )
@@ -193,9 +241,8 @@ def create_app(
         finally:
             engine.dispose()
 
-    application = FastAPI(
-        title=runtime_settings.app_name, version="0.2.0", lifespan=lifespan
-    )
+    application = FastAPI(title=runtime_settings.app_name, version="0.2.0", lifespan=lifespan)
+    application.state.settings = runtime_settings
     application.add_middleware(
         CORSMiddleware,
         allow_origins=list(runtime_settings.cors_origins),
@@ -208,12 +255,22 @@ def create_app(
     application.state.videos = video_repository
     application.state.video_storage = video_storage
     application.state.video_ingestion = VideoIngestionService(video_storage, video_repository)
+    application.state.sensor_streams = SyntheticSensorStreamStore(
+        runtime_settings.upload_directory / "generated_sensor_streams"
+    )
     application.state.detection_normalizer = DetectionNormalizer()
     application.state.processing_jobs = job_repository
     application.state.onboarding = onboarding_repository
+    application.state.review_memory = ReviewedContextRepository(
+        session_factory, onboarding_repository
+    )
     application.state.deliveries = delivery_repository
     application.state.audits = audit_repository
     application.state.policy_ingestor = PolicyPdfIngestor(runtime_settings.policy_directory)
+    application.state.geocoder = NominatimGeocoder(
+        runtime_settings.geocoding_base_url,
+        runtime_settings.geocoding_user_agent,
+    )
     application.state.job_events = JobEventBuffer()
     execution_router = ExecutionRouter(
         delivery_repository,
@@ -224,6 +281,16 @@ def create_app(
         api_key_sid=runtime_settings.twilio_api_key_sid,
         api_key_secret=runtime_settings.twilio_api_key_secret,
         from_number=runtime_settings.twilio_from_number,
+        whatsapp_enabled=runtime_settings.twilio_whatsapp_enabled,
+        whatsapp_from_number=runtime_settings.twilio_whatsapp_from_number,
+        vonage_whatsapp_enabled=runtime_settings.vonage_whatsapp_enabled,
+        vonage_api_key=runtime_settings.vonage_api_key,
+        vonage_api_secret=runtime_settings.vonage_api_secret,
+        vonage_whatsapp_from_number=runtime_settings.vonage_whatsapp_from_number,
+        vonage_messages_url=runtime_settings.vonage_messages_url,
+        public_base_url=runtime_settings.public_base_url,
+        report_link_secret=runtime_settings.report_link_secret,
+        execution_mode=runtime_settings.execution_mode,
     )
     configured_reasoning = reasoning_service
     if configured_reasoning is None and runtime_settings.groq_api_key:
@@ -231,14 +298,31 @@ def create_app(
             runtime_settings.groq_api_key,
             runtime_settings.groq_model,
             max_retries=runtime_settings.groq_max_retries,
+            allow_missing_contact=runtime_settings.execution_mode == "simulate",
         )
     application.state.orchestrator = build_orchestrator(
         repository,
-        onboarding_repository,
+        application.state.review_memory,
         execution_router,
         runtime_settings.force_accept_verification,
         configured_reasoning or UnconfiguredReasoningAgent(),
         audit_repository,
+        EvidenceFusionModel(
+            threshold=runtime_settings.verification_threshold,
+            override_probability=runtime_settings.sensor_override_probability,
+            override_reliability=runtime_settings.sensor_override_reliability,
+            visual_override_impact=runtime_settings.visual_override_impact,
+            visual_override_confidence=runtime_settings.visual_override_confidence,
+        ),
+        simulation_mode=runtime_settings.execution_mode == "simulate",
+        adaptive_threshold=AdaptiveThresholdModel(
+            minimum=runtime_settings.adaptive_threshold_minimum,
+            maximum=runtime_settings.adaptive_threshold_maximum,
+            maximum_adjustment=runtime_settings.adaptive_threshold_maximum_adjustment,
+            stabilizer=runtime_settings.adaptive_threshold_stabilizer,
+            recency_half_life_days=runtime_settings.adaptive_threshold_recency_half_life_days,
+        ),
+        threshold_profiles=threshold_profile_repository,
     )
     configured_detector = detector
     if configured_detector is None and runtime_settings.accident_model_path is not None:
@@ -247,17 +331,24 @@ def create_app(
             runtime_settings.accident_confidence_threshold,
         )
     application.state.video_processor = VideoProcessingService(
-        video_repository,
-        video_storage,
-        job_repository,
-        frame_reader or OpenCVFrameReader(),
-        configured_detector or UnconfiguredAccidentDetector(),
-        application.state.detection_normalizer,
-        application.state.orchestrator,
-        runtime_settings.frame_sample_fps,
-        runtime_settings.playback_speed,
-        application.state.job_events.append,
-        runtime_settings.temporal_cluster_gap_seconds,
+        videos=video_repository,
+        storage=video_storage,
+        jobs=job_repository,
+        reader=frame_reader or OpenCVFrameReader(),
+        detector=configured_detector or UnconfiguredAccidentDetector(),
+        normalizer=application.state.detection_normalizer,
+        orchestrator=application.state.orchestrator,
+        sample_fps=runtime_settings.frame_sample_fps,
+        playback_speed=runtime_settings.playback_speed,
+        event_sink=application.state.job_events.append,
+        temporal_cluster_gap_seconds=runtime_settings.temporal_cluster_gap_seconds,
+        sensor_candidate_detector=SensorCandidateDetector(
+            probability_threshold=runtime_settings.sensor_candidate_probability,
+            reliability_threshold=runtime_settings.sensor_candidate_reliability,
+        ),
+        sensor_generator=SyntheticSensorStreamGenerator(),
+        sensor_stream_store=application.state.sensor_streams,
+        sensor_event_sink=application.state.job_events.append_sensor,
     )
     register_routes(application)
     twilio_configured = bool(
@@ -266,27 +357,85 @@ def create_app(
         and runtime_settings.twilio_from_number
         and (
             runtime_settings.twilio_auth_token
-            or (
-                runtime_settings.twilio_api_key_sid
-                and runtime_settings.twilio_api_key_secret
-            )
+            or (runtime_settings.twilio_api_key_sid and runtime_settings.twilio_api_key_secret)
         )
     )
     application.state.integration_status = {
         "accident_model": isinstance(configured_detector, UltralyticsAccidentDetector),
         "policy_rag": True,
         "pdf_reports": True,
+        "execution_mode": runtime_settings.execution_mode,
+        "external_execution": runtime_settings.execution_mode == "simulate"
+        or bool(
+            twilio_configured
+            and runtime_settings.twilio_live_validated
+            and runtime_settings.twilio_whatsapp_enabled
+            and runtime_settings.twilio_whatsapp_live_validated
+        ),
         "twilio_configured": twilio_configured,
         "twilio_voice": twilio_configured and runtime_settings.twilio_live_validated,
+        "twilio_whatsapp": bool(
+            twilio_configured
+            and runtime_settings.twilio_whatsapp_enabled
+            and runtime_settings.twilio_whatsapp_from_number
+            and runtime_settings.public_base_url
+            and runtime_settings.report_link_secret
+            and runtime_settings.twilio_whatsapp_live_validated
+        ),
         "model_backed_reasoning": isinstance(configured_reasoning, GroqReasoningAgent),
-        "reasoning_provider": "groq" if isinstance(configured_reasoning, GroqReasoningAgent) else "unconfigured",
-        "reasoning_model": runtime_settings.groq_model if isinstance(configured_reasoning, GroqReasoningAgent) else "",
+        "reasoning_provider": "groq"
+        if isinstance(configured_reasoning, GroqReasoningAgent)
+        else "unconfigured",
+        "reasoning_model": runtime_settings.groq_model
+        if isinstance(configured_reasoning, GroqReasoningAgent)
+        else "",
         "forced_accept_verification": runtime_settings.force_accept_verification,
     }
     return application
 
 
 def register_routes(application: FastAPI) -> None:
+    @application.get("/api/v1/locations/search")
+    def search_locations(
+        request: Request,
+        q: Annotated[str, Query(min_length=2, max_length=200)],
+    ) -> dict[str, object]:
+        require_session(request)
+        try:
+            return {"items": request.app.state.geocoder.search(q)}
+        except GeocodingUnavailable as error:
+            raise HTTPException(status_code=502, detail=str(error)) from error
+
+    @application.get("/api/v1/locations/reverse")
+    def reverse_location(
+        request: Request,
+        latitude: Annotated[float, Query(ge=-90, le=90)],
+        longitude: Annotated[float, Query(ge=-180, le=180)],
+    ) -> dict[str, object]:
+        require_session(request)
+        try:
+            return request.app.state.geocoder.reverse(latitude, longitude)
+        except GeocodingUnavailable as error:
+            raise HTTPException(status_code=502, detail=str(error)) from error
+
+    @application.get("/api/v1/incidents/{incident_id}/review")
+    def get_review(request: Request, incident_id: str):
+        session = require_session(request)
+        if request.app.state.incidents.get(incident_id, session.organization_id) is None:
+            raise HTTPException(404, "Incident not found")
+        return request.app.state.review_memory.get(incident_id, session.organization_id)
+
+    @application.put("/api/v1/incidents/{incident_id}/review")
+    def save_review(request: Request, incident_id: str, payload: ReviewRequest):
+        session = require_session(request)
+        if request.app.state.incidents.get(incident_id, session.organization_id) is None:
+            raise HTTPException(404, "Incident not found")
+        if payload.false_alarm and payload.response_action != "none":
+            raise HTTPException(422, "False alarms must use no escalation")
+        return request.app.state.review_memory.save(
+            incident_id, session.organization_id, session.user_id, payload.model_dump()
+        )
+
     @application.post("/api/v1/auth/signup", status_code=201)
     def signup(request: Request, payload: SignupRequest) -> dict[str, object]:
         organization = Organization(name=payload.organization_name)
@@ -295,8 +444,14 @@ def register_routes(application: FastAPI) -> None:
                 organization, payload.email, hash_password(payload.password)
             )
         except IntegrityError as error:
-            raise HTTPException(status_code=409, detail="An account with this email already exists") from error
-        return {"access_token": session.token, "token_type": "bearer", "organization_id": session.organization_id}
+            raise HTTPException(
+                status_code=409, detail="An account with this email already exists"
+            ) from error
+        return {
+            "access_token": session.token,
+            "token_type": "bearer",
+            "organization_id": session.organization_id,
+        }
 
     @application.post("/api/v1/auth/login")
     def login(request: Request, payload: LoginRequest) -> dict[str, object]:
@@ -304,7 +459,11 @@ def register_routes(application: FastAPI) -> None:
         if user is None or not verify_password(payload.password, user.password_hash):
             raise HTTPException(status_code=401, detail="Invalid email or password")
         session = request.app.state.onboarding.create_session(user)
-        return {"access_token": session.token, "token_type": "bearer", "organization_id": session.organization_id}
+        return {
+            "access_token": session.token,
+            "token_type": "bearer",
+            "organization_id": session.organization_id,
+        }
 
     @application.post("/api/v1/auth/logout", status_code=204)
     def logout(request: Request) -> None:
@@ -353,7 +512,13 @@ def register_routes(application: FastAPI) -> None:
         integrations = request.app.state.integration_status
         required_ready = all(
             integrations[key]
-            for key in ("accident_model", "policy_rag", "pdf_reports", "twilio_voice", "model_backed_reasoning")
+            for key in (
+                "accident_model",
+                "policy_rag",
+                "pdf_reports",
+                "external_execution",
+                "model_backed_reasoning",
+            )
         )
         return {"ready": required_ready, "integrations": integrations}
 
@@ -361,6 +526,9 @@ def register_routes(application: FastAPI) -> None:
     def process_incident(request: Request, payload: DetectionRequest) -> dict[str, object]:
         session = require_session(request)
         values = payload.model_dump(exclude_none=True)
+        values["sensor_readings"] = tuple(
+            SensorReading(**reading) for reading in values["sensor_readings"]
+        )
         values["organization_id"] = session.organization_id
         result = request.app.state.orchestrator.process(Detection(**values))
         return structured(result)
@@ -369,6 +537,9 @@ def register_routes(application: FastAPI) -> None:
     def stream_incident(request: Request, payload: DetectionRequest) -> StreamingResponse:
         session = require_session(request)
         values = payload.model_dump(exclude_none=True)
+        values["sensor_readings"] = tuple(
+            SensorReading(**reading) for reading in values["sensor_readings"]
+        )
         values["organization_id"] = session.organization_id
         detection = Detection(**values)
 
@@ -424,7 +595,26 @@ def register_routes(application: FastAPI) -> None:
         report = next((record for record in records if record.report_path), None)
         if report is None or not Path(report.report_path).is_file():
             raise HTTPException(status_code=404, detail="Incident report not found")
-        return FileResponse(report.report_path, media_type="application/pdf", filename=f"incident-{incident_id}.pdf")
+        return FileResponse(
+            report.report_path, media_type="application/pdf", filename=f"incident-{incident_id}.pdf"
+        )
+
+    @application.api_route("/api/v1/public/reports/{detection_id}.pdf", methods=["GET", "HEAD"])
+    def public_incident_report(request: Request, detection_id: str, token: str) -> FileResponse:
+        secret = request.app.state.settings.report_link_secret
+        expected = (
+            hmac.new(secret.encode(), detection_id.encode(), hashlib.sha256).hexdigest()
+            if secret
+            else ""
+        )
+        if not expected or not hmac.compare_digest(token, expected):
+            raise HTTPException(status_code=403, detail="Invalid report link")
+        path = (
+            request.app.state.settings.report_directory.resolve() / f"incident-{detection_id}.pdf"
+        )
+        if not path.is_file():
+            raise HTTPException(status_code=404, detail="Incident report not found")
+        return FileResponse(path, media_type="application/pdf", filename="sentrix-report.pdf")
 
     @application.get("/api/v1/analytics/summary")
     def analytics_summary(request: Request) -> dict[str, object]:
@@ -433,9 +623,7 @@ def register_routes(application: FastAPI) -> None:
         return {"total_incidents": sum(counts.values()), "by_severity": counts}
 
     @application.post("/api/v1/videos", status_code=201)
-    def upload_video(
-        request: Request, video: Annotated[UploadFile, File()]
-    ) -> dict[str, object]:
+    def upload_video(request: Request, video: Annotated[UploadFile, File()]) -> dict[str, object]:
         session = require_session(request)
         try:
             asset = request.app.state.video_ingestion.ingest(
@@ -464,6 +652,22 @@ def register_routes(application: FastAPI) -> None:
         if not path.is_file():
             raise HTTPException(status_code=404, detail="Video content not found")
         return FileResponse(path, media_type=asset.content_type)
+
+    @application.get("/api/v1/videos/{video_id}/sensor-stream")
+    def download_generated_sensor_stream(request: Request, video_id: str) -> FileResponse:
+        session = require_session(request)
+        require_video(request, video_id, session.organization_id)
+        path = request.app.state.sensor_streams.path_for(video_id)
+        if not path.is_file():
+            raise HTTPException(
+                status_code=409,
+                detail="Sensor stream is generated only after video processing completes",
+            )
+        return FileResponse(
+            path,
+            media_type="application/json",
+            filename=f"sentrix-sensor-stream-{video_id[:8]}.json",
+        )
 
     @application.post("/api/v1/videos/{video_id}/detections")
     def process_detector_output(
@@ -496,6 +700,7 @@ def register_routes(application: FastAPI) -> None:
                 payload.camera_id,
                 payload.location,
                 session.organization_id,
+                payload.sensor_scenario,
             )
         except LookupError as error:
             raise HTTPException(status_code=404, detail=str(error)) from error
@@ -533,9 +738,15 @@ def register_routes(application: FastAPI) -> None:
         if job is None or job.organization_id != session.organization_id:
             raise HTTPException(status_code=404, detail="Processing job not found")
         if job.status not in {ProcessingStatus.FAILED, ProcessingStatus.CANCELLED}:
-            raise HTTPException(status_code=409, detail="Only failed or cancelled jobs can be retried")
+            raise HTTPException(
+                status_code=409, detail="Only failed or cancelled jobs can be retried"
+            )
         retried = request.app.state.video_processor.create_job(
-            job.video_id, job.camera_id, job.location, session.organization_id
+            job.video_id,
+            job.camera_id,
+            job.location,
+            session.organization_id,
+            job.sensor_scenario,
         )
         background_tasks.add_task(request.app.state.video_processor.process, retried.job_id)
         return structured(retried)
@@ -550,14 +761,18 @@ def register_routes(application: FastAPI) -> None:
         async def generate_job_events():
             last_update = None
             pipeline_position = 0
+            sensor_position = 0
             while True:
                 job = request.app.state.processing_jobs.get(job_id)
                 if job is None:
                     break
                 marker = job.updated_at.isoformat()
-                pipeline_events = request.app.state.job_events.after(
-                    job_id, pipeline_position
-                )
+                pipeline_events = request.app.state.job_events.after(job_id, pipeline_position)
+                sensor_frames = request.app.state.job_events.sensors_after(job_id, sensor_position)
+                for sensor_frame in sensor_frames:
+                    data = json.dumps(structured(sensor_frame), separators=(",", ":"))
+                    yield f"event: sensor\ndata: {data}\n\n"
+                sensor_position += len(sensor_frames)
                 for pipeline_event in pipeline_events:
                     data = json.dumps(structured(pipeline_event), separators=(",", ":"))
                     yield f"event: pipeline\ndata: {data}\n\n"

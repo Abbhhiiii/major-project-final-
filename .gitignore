@@ -18,5 +18,7 @@ uploads/
 reports/
 policies/
 .demo-backups/
+demo login
 model-weights/
 demo_assets/test_videos/*.mp4
+demo_assets/professor_demo/*.mp4

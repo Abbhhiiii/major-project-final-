@@ -1,0 +1,19 @@
+{
+  "schema_version": 1,
+  "scenario": "Fresh reliable smoke and audio readings are both low and contradict a visual alert",
+  "candidate_timestamp_ms": 1500,
+  "sensors": [
+    {
+      "sensor_type": "smoke",
+      "probability": 0.08,
+      "reliability": 0.95,
+      "age_ms": 100
+    },
+    {
+      "sensor_type": "audio",
+      "probability": 0.1,
+      "reliability": 0.94,
+      "age_ms": 120
+    }
+  ]
+}

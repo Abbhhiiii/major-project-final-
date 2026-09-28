@@ -1,0 +1,413 @@
+{
+  "schema_version": 1,
+  "description": "Synthetic, repeatable auxiliary sensor evidence for demo clips. Values are normalized probabilities, not physical measurements.",
+  "clips": {
+    "image1-accident-test.mp4": {
+      "scenario": "visual event corroborated by sharp audio impulse and light smoke",
+      "candidate_timestamp_ms": 1500,
+      "sensors": [
+        {
+          "sensor_type": "smoke",
+          "probability": 0.72,
+          "reliability": 0.82,
+          "age_ms": 450
+        },
+        {
+          "sensor_type": "audio",
+          "probability": 0.88,
+          "reliability": 0.91,
+          "age_ms": 120
+        }
+      ]
+    },
+    "image2-accident-test.mp4": {
+      "scenario": "high agreement across all evidence sources",
+      "candidate_timestamp_ms": 1500,
+      "sensors": [
+        {
+          "sensor_type": "smoke",
+          "probability": 0.84,
+          "reliability": 0.9,
+          "age_ms": 300
+        },
+        {
+          "sensor_type": "audio",
+          "probability": 0.93,
+          "reliability": 0.94,
+          "age_ms": 80
+        }
+      ]
+    },
+    "image3-accident-test.mp4": {
+      "scenario": "weak visual evidence but a decisive smoke sensor override",
+      "candidate_timestamp_ms": 1500,
+      "sensors": [
+        {
+          "sensor_type": "smoke",
+          "probability": 0.97,
+          "reliability": 0.92,
+          "age_ms": 140
+        },
+        {
+          "sensor_type": "audio",
+          "probability": 0.56,
+          "reliability": 0.75,
+          "age_ms": 420
+        }
+      ]
+    },
+    "image4-accident-test.mp4": {
+      "scenario": "visual-only ambiguity with auxiliary contradiction",
+      "candidate_timestamp_ms": 1500,
+      "sensors": [
+        {
+          "sensor_type": "smoke",
+          "probability": 0.08,
+          "reliability": 0.88,
+          "age_ms": 250
+        },
+        {
+          "sensor_type": "audio",
+          "probability": 0.12,
+          "reliability": 0.86,
+          "age_ms": 190
+        }
+      ]
+    },
+    "image5-accident-test.mp4": {
+      "scenario": "moderate visual detection corroborated by audio",
+      "candidate_timestamp_ms": 1500,
+      "sensors": [
+        {
+          "sensor_type": "smoke",
+          "probability": 0.42,
+          "reliability": 0.73,
+          "age_ms": 900
+        },
+        {
+          "sensor_type": "audio",
+          "probability": 0.91,
+          "reliability": 0.9,
+          "age_ms": 110
+        }
+      ]
+    },
+    "image6-accident-test.mp4": {
+      "scenario": "stale and unreliable sensors remain nearly neutral",
+      "candidate_timestamp_ms": 1500,
+      "sensors": [
+        {
+          "sensor_type": "smoke",
+          "probability": 0.78,
+          "reliability": 0.28,
+          "age_ms": 18000
+        },
+        {
+          "sensor_type": "audio",
+          "probability": 0.66,
+          "reliability": 0.22,
+          "age_ms": 22000
+        }
+      ]
+    },
+    "image7-accident-test.mp4": {
+      "scenario": "borderline visual signal strengthened by multi-sensor agreement",
+      "candidate_timestamp_ms": 1500,
+      "sensors": [
+        {
+          "sensor_type": "smoke",
+          "probability": 0.76,
+          "reliability": 0.85,
+          "age_ms": 360
+        },
+        {
+          "sensor_type": "audio",
+          "probability": 0.81,
+          "reliability": 0.88,
+          "age_ms": 210
+        }
+      ]
+    },
+    "neutral-black.mp4": {
+      "scenario": "no event and no auxiliary anomaly",
+      "candidate_timestamp_ms": 1500,
+      "sensors": [
+        {
+          "sensor_type": "smoke",
+          "probability": 0.02,
+          "reliability": 0.95,
+          "age_ms": 100
+        },
+        {
+          "sensor_type": "audio",
+          "probability": 0.03,
+          "reliability": 0.95,
+          "age_ms": 100
+        }
+      ]
+    },
+    "neutral-gray.mp4": {
+      "scenario": "no event with normal ambient sensor readings",
+      "candidate_timestamp_ms": 1500,
+      "sensors": [
+        {
+          "sensor_type": "smoke",
+          "probability": 0.07,
+          "reliability": 0.92,
+          "age_ms": 150
+        },
+        {
+          "sensor_type": "audio",
+          "probability": 0.09,
+          "reliability": 0.91,
+          "age_ms": 160
+        }
+      ]
+    },
+    "neutral-road-color.mp4": {
+      "scenario": "road-like visual background without corroboration",
+      "candidate_timestamp_ms": 1500,
+      "sensors": [
+        {
+          "sensor_type": "smoke",
+          "probability": 0.11,
+          "reliability": 0.9,
+          "age_ms": 220
+        },
+        {
+          "sensor_type": "audio",
+          "probability": 0.14,
+          "reliability": 0.88,
+          "age_ms": 170
+        }
+      ]
+    },
+    "01_all_sources_agree.mp4": {
+      "scenario": "01_all_sources_agree",
+      "candidate_timestamp_ms": 1500,
+      "sensors": [
+        {
+          "sensor_type": "smoke",
+          "probability": 0.84,
+          "reliability": 0.95,
+          "age_ms": 100
+        },
+        {
+          "sensor_type": "audio",
+          "probability": 0.88,
+          "reliability": 0.95,
+          "age_ms": 100
+        }
+      ],
+      "synthetic": true,
+      "source_clip": "image2-accident-test.mp4",
+      "video_sha256": "cf260667bb244317202cc7444ddc3fe7fc85ff6e1792da90d8fb6a93d896d71d",
+      "expected_outcome": "verified",
+      "expected_override": null
+    },
+    "02_smoke_only_override.mp4": {
+      "scenario": "02_smoke_only_override",
+      "candidate_timestamp_ms": 1500,
+      "sensors": [
+        {
+          "sensor_type": "smoke",
+          "probability": 0.97,
+          "reliability": 0.95,
+          "age_ms": 100
+        },
+        {
+          "sensor_type": "audio",
+          "probability": 0.1,
+          "reliability": 0.95,
+          "age_ms": 100
+        }
+      ],
+      "synthetic": true,
+      "source_clip": "neutral-gray.mp4",
+      "video_sha256": "e5454480137b37c1088d8f67976f53c01dd6b3bfe974b2d73c65fba0b128b738",
+      "expected_outcome": "verified",
+      "expected_override": "smoke"
+    },
+    "03_audio_only_override.mp4": {
+      "scenario": "03_audio_only_override",
+      "candidate_timestamp_ms": 1500,
+      "sensors": [
+        {
+          "sensor_type": "smoke",
+          "probability": 0.1,
+          "reliability": 0.95,
+          "age_ms": 100
+        },
+        {
+          "sensor_type": "audio",
+          "probability": 0.98,
+          "reliability": 0.95,
+          "age_ms": 100
+        }
+      ],
+      "synthetic": true,
+      "source_clip": "neutral-gray.mp4",
+      "video_sha256": "e5454480137b37c1088d8f67976f53c01dd6b3bfe974b2d73c65fba0b128b738",
+      "expected_outcome": "verified",
+      "expected_override": "audio"
+    },
+    "04_borderline_visual_corroborated.mp4": {
+      "scenario": "04_borderline_visual_corroborated",
+      "candidate_timestamp_ms": 1500,
+      "sensors": [
+        {
+          "sensor_type": "smoke",
+          "probability": 0.76,
+          "reliability": 0.95,
+          "age_ms": 100
+        },
+        {
+          "sensor_type": "audio",
+          "probability": 0.81,
+          "reliability": 0.95,
+          "age_ms": 100
+        }
+      ],
+      "synthetic": true,
+      "source_clip": "image7-accident-test.mp4",
+      "video_sha256": "2658d0b148f8f8e44399b647f7e214ed27a1a0aa1ff114bc26b9cf0128d2f1fa",
+      "expected_outcome": "verified",
+      "expected_override": null
+    },
+    "05_visual_contradicted.mp4": {
+      "scenario": "05_visual_contradicted",
+      "candidate_timestamp_ms": 1500,
+      "sensors": [
+        {
+          "sensor_type": "smoke",
+          "probability": 0.08,
+          "reliability": 0.95,
+          "age_ms": 100
+        },
+        {
+          "sensor_type": "audio",
+          "probability": 0.1,
+          "reliability": 0.95,
+          "age_ms": 100
+        }
+      ],
+      "synthetic": true,
+      "source_clip": "image2-accident-test.mp4",
+      "video_sha256": "cf260667bb244317202cc7444ddc3fe7fc85ff6e1792da90d8fb6a93d896d71d",
+      "expected_outcome": "suppressed",
+      "expected_override": null
+    },
+    "06_stale_sensor_spike.mp4": {
+      "scenario": "06_stale_sensor_spike",
+      "candidate_timestamp_ms": 1500,
+      "sensors": [
+        {
+          "sensor_type": "smoke",
+          "probability": 0.99,
+          "reliability": 0.95,
+          "age_ms": 60000
+        },
+        {
+          "sensor_type": "audio",
+          "probability": 0.99,
+          "reliability": 0.95,
+          "age_ms": 60000
+        }
+      ],
+      "synthetic": true,
+      "source_clip": "neutral-gray.mp4",
+      "video_sha256": "e5454480137b37c1088d8f67976f53c01dd6b3bfe974b2d73c65fba0b128b738",
+      "expected_outcome": "no_candidate",
+      "expected_override": null
+    },
+    "07_unreliable_sensor_spike.mp4": {
+      "scenario": "07_unreliable_sensor_spike",
+      "candidate_timestamp_ms": 1500,
+      "sensors": [
+        {
+          "sensor_type": "smoke",
+          "probability": 0.99,
+          "reliability": 0.2,
+          "age_ms": 100
+        },
+        {
+          "sensor_type": "audio",
+          "probability": 0.99,
+          "reliability": 0.2,
+          "age_ms": 100
+        }
+      ],
+      "synthetic": true,
+      "source_clip": "neutral-gray.mp4",
+      "video_sha256": "e5454480137b37c1088d8f67976f53c01dd6b3bfe974b2d73c65fba0b128b738",
+      "expected_outcome": "no_candidate",
+      "expected_override": null
+    },
+    "08_missing_sensors_visual_only.mp4": {
+      "scenario": "08_missing_sensors_visual_only",
+      "candidate_timestamp_ms": 1500,
+      "sensors": [],
+      "synthetic": true,
+      "source_clip": "image2-accident-test.mp4",
+      "video_sha256": "cf260667bb244317202cc7444ddc3fe7fc85ff6e1792da90d8fb6a93d896d71d",
+      "expected_outcome": "verified",
+      "expected_override": null
+    },
+    "09_normal_scene.mp4": {
+      "scenario": "09_normal_scene",
+      "candidate_timestamp_ms": 1500,
+      "sensors": [
+        {
+          "sensor_type": "smoke",
+          "probability": 0.05,
+          "reliability": 0.95,
+          "age_ms": 100
+        },
+        {
+          "sensor_type": "audio",
+          "probability": 0.08,
+          "reliability": 0.95,
+          "age_ms": 100
+        }
+      ],
+      "synthetic": true,
+      "source_clip": "neutral-gray.mp4",
+      "video_sha256": "e5454480137b37c1088d8f67976f53c01dd6b3bfe974b2d73c65fba0b128b738",
+      "expected_outcome": "no_candidate",
+      "expected_override": null
+    },
+    "10_sensor_candidate_rejected.mp4": {
+      "scenario": "10_sensor_candidate_rejected",
+      "candidate_timestamp_ms": 1500,
+      "sensors": [
+        {
+          "sensor_type": "smoke",
+          "probability": 0.75,
+          "reliability": 0.95,
+          "age_ms": 100
+        },
+        {
+          "sensor_type": "audio",
+          "probability": 0.1,
+          "reliability": 0.95,
+          "age_ms": 100
+        }
+      ],
+      "synthetic": true,
+      "source_clip": "neutral-gray.mp4",
+      "video_sha256": "e5454480137b37c1088d8f67976f53c01dd6b3bfe974b2d73c65fba0b128b738",
+      "expected_outcome": "suppressed",
+      "expected_override": null
+    },
+    "11_borderline_visual_only.mp4": {
+      "scenario": "11_borderline_visual_only",
+      "candidate_timestamp_ms": 1500,
+      "sensors": [],
+      "synthetic": true,
+      "source_clip": "image7-accident-test.mp4",
+      "video_sha256": "2658d0b148f8f8e44399b647f7e214ed27a1a0aa1ff114bc26b9cf0128d2f1fa",
+      "expected_outcome": "suppressed",
+      "expected_override": null
+    }
+  }
+}
