@@ -5,6 +5,7 @@ import hashlib
 import hmac
 import json
 import logging
+import re
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from dataclasses import replace
@@ -15,7 +16,7 @@ from uuid import uuid4
 
 from fastapi import BackgroundTasks, FastAPI, File, HTTPException, Query, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 from sqlalchemy.exc import IntegrityError
 from starlette.responses import FileResponse, StreamingResponse
 
@@ -179,6 +180,28 @@ class OnboardingRequest(BaseModel):
     emergency_contact: str = Field(min_length=3, max_length=255)
     notification_preference: str = "voice alert for high-severity incidents"
     agent_api_key: str = Field(min_length=8, max_length=500)
+
+    @field_validator("emergency_contact")
+    @classmethod
+    def validate_emergency_contact(cls, value: str) -> str:
+        return normalize_emergency_contact(value)
+
+
+class EmergencyContactRequest(BaseModel):
+    emergency_contact: str = Field(min_length=3, max_length=255)
+    notification_preference: str = Field(min_length=3, max_length=100)
+
+    @field_validator("emergency_contact")
+    @classmethod
+    def validate_emergency_contact(cls, value: str) -> str:
+        return normalize_emergency_contact(value)
+
+
+def normalize_emergency_contact(value: str) -> str:
+    normalized = re.sub(r"[\s().-]", "", value)
+    if not re.fullmatch(r"\+[1-9]\d{7,14}", normalized):
+        raise ValueError("Use E.164 format, for example +919876543210")
+    return normalized
 
 
 def build_orchestrator(
@@ -360,28 +383,41 @@ def create_app(
             or (runtime_settings.twilio_api_key_sid and runtime_settings.twilio_api_key_secret)
         )
     )
+    vonage_configured = bool(
+        runtime_settings.vonage_whatsapp_enabled
+        and runtime_settings.vonage_api_key
+        and runtime_settings.vonage_api_secret
+        and runtime_settings.vonage_whatsapp_from_number
+    )
+    twilio_whatsapp_configured = bool(
+        twilio_configured
+        and runtime_settings.twilio_whatsapp_enabled
+        and runtime_settings.twilio_whatsapp_from_number
+        and runtime_settings.public_base_url
+        and runtime_settings.report_link_secret
+        and runtime_settings.twilio_whatsapp_live_validated
+    )
+    external_execution_ready = (
+        runtime_settings.execution_mode == "simulate"
+        or (runtime_settings.execution_mode == "hybrid" and vonage_configured)
+        or (
+            runtime_settings.execution_mode == "live"
+            and twilio_configured
+            and runtime_settings.twilio_live_validated
+            and (vonage_configured or twilio_whatsapp_configured)
+        )
+    )
     application.state.integration_status = {
         "accident_model": isinstance(configured_detector, UltralyticsAccidentDetector),
         "policy_rag": True,
         "pdf_reports": True,
         "execution_mode": runtime_settings.execution_mode,
-        "external_execution": runtime_settings.execution_mode == "simulate"
-        or bool(
-            twilio_configured
-            and runtime_settings.twilio_live_validated
-            and runtime_settings.twilio_whatsapp_enabled
-            and runtime_settings.twilio_whatsapp_live_validated
-        ),
+        "external_execution": external_execution_ready,
         "twilio_configured": twilio_configured,
         "twilio_voice": twilio_configured and runtime_settings.twilio_live_validated,
-        "twilio_whatsapp": bool(
-            twilio_configured
-            and runtime_settings.twilio_whatsapp_enabled
-            and runtime_settings.twilio_whatsapp_from_number
-            and runtime_settings.public_base_url
-            and runtime_settings.report_link_secret
-            and runtime_settings.twilio_whatsapp_live_validated
-        ),
+        "twilio_whatsapp": twilio_whatsapp_configured,
+        "vonage_whatsapp": vonage_configured,
+        "voice_execution_simulated": runtime_settings.execution_mode in {"simulate", "hybrid"},
         "model_backed_reasoning": isinstance(configured_reasoning, GroqReasoningAgent),
         "reasoning_provider": "groq"
         if isinstance(configured_reasoning, GroqReasoningAgent)
@@ -488,6 +524,18 @@ def register_routes(application: FastAPI) -> None:
             payload.notification_preference,
             fingerprint,
             last_four,
+        )
+        return request.app.state.onboarding.summary(session.organization_id)
+
+    @application.put("/api/v1/onboarding/emergency-contact")
+    def update_emergency_contact(
+        request: Request, payload: EmergencyContactRequest
+    ) -> dict[str, object]:
+        session = require_session(request)
+        request.app.state.onboarding.update_emergency_contact(
+            session.organization_id,
+            payload.emergency_contact,
+            payload.notification_preference,
         )
         return request.app.state.onboarding.summary(session.organization_id)
 

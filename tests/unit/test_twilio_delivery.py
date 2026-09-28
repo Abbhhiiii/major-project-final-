@@ -86,6 +86,7 @@ def test_vonage_whatsapp_sends_one_dashboard_alert(tmp_path: Path) -> None:
     router = ExecutionRouter(
         deliveries,
         reports,
+        execution_mode="hybrid",
     )
     vonage = FakeVonage()
     router.vonage = vonage
@@ -98,6 +99,7 @@ def test_vonage_whatsapp_sends_one_dashboard_alert(tmp_path: Path) -> None:
     assert "Open Sentrix to review the complete evidence" in vonage.text_request["text"]
     assert vonage.file_request is None
     assert deliveries.items[0].provider_reference == "vonage-text-id"
+    assert deliveries.items[0].status == "delivered"
 
 
 def test_voice_uses_groq_message_and_normalized_numbers(tmp_path: Path) -> None:
@@ -142,3 +144,17 @@ def test_demo_mode_simulates_external_action_without_twilio(tmp_path: Path) -> N
     assert deliveries.items[0].status == "simulated"
     assert deliveries.items[0].provider_reference == "demo-simulation"
     assert router.twilio is None
+
+
+def test_hybrid_mode_simulates_voice_until_twilio_is_ready(tmp_path: Path) -> None:
+    deliveries = RecordingDeliveries()
+    router = ExecutionRouter(
+        deliveries,
+        PdfReportRenderer(tmp_path),
+        execution_mode="hybrid",
+    )
+
+    router.execute(Action("voice_alert", "+919876543210", "Critical incident at North Gate."))
+
+    assert deliveries.items[0].status == "simulated"
+    assert deliveries.items[0].provider_reference == "demo-simulation"

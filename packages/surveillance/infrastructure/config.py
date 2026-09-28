@@ -20,7 +20,7 @@ class Settings(BaseSettings):
     upload_directory: Path = Path("uploads")
     policy_directory: Path = Path("policies")
     report_directory: Path = Path("reports")
-    execution_mode: Literal["live", "simulate"] = "live"
+    execution_mode: Literal["live", "simulate", "hybrid"] = "live"
     twilio_enabled: bool = False
     twilio_account_sid: str = ""
     twilio_auth_token: str = ""

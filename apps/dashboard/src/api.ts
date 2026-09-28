@@ -28,6 +28,25 @@ function expireLocalSession() {
 export const getIncidents = () => getJson<IncidentHistory>('/api/v1/incidents')
 export const getAnalytics = () => getJson<AnalyticsSummary>('/api/v1/analytics/summary')
 export const getOnboarding = () => getJson<OnboardingSummary>('/api/v1/onboarding')
+export async function updateEmergencyContact(
+  emergencyContact: string,
+  notificationPreference: string,
+) {
+  const response = await fetch(`${API_URL}/api/v1/onboarding/emergency-contact`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json', ...authHeaders() },
+    body: JSON.stringify({
+      emergency_contact: emergencyContact,
+      notification_preference: notificationPreference,
+    }),
+  })
+  const data = await response.json() as OnboardingSummary & { detail?: string | { msg?: string }[] }
+  if (!response.ok) {
+    const detail = Array.isArray(data.detail) ? data.detail[0]?.msg : data.detail
+    throw new Error(typeof detail === 'string' ? detail : 'Could not save emergency contact')
+  }
+  return data
+}
 export const getIncidentAudit = (incidentId: string) => getJson<AgentAudit>(`/api/v1/incidents/${incidentId}/audit`)
 export const getIncidentDeliveries = async (incidentId: string) => {
   const result = await getJson<{ items: DeliveryRecord[] }>(`/api/v1/incidents/${incidentId}/deliveries`)

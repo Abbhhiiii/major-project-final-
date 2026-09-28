@@ -197,7 +197,10 @@ class ExecutionRouter:
         try:
             if action.kind == "pdf_report":
                 report_path = str(self.reports.render(action))
-            elif action.kind in {"voice_alert", "whatsapp_alert"} and self.execution_mode == "simulate":
+            elif (
+                action.kind in {"voice_alert", "whatsapp_alert"}
+                and self.execution_mode == "simulate"
+            ) or (action.kind == "voice_alert" and self.execution_mode == "hybrid"):
                 status = "simulated"
                 reference = "demo-simulation"
                 if action.kind == "whatsapp_alert":

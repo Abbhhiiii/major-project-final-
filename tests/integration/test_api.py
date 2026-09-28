@@ -562,6 +562,50 @@ def test_onboarding_requires_authentication(tmp_path: Path) -> None:
         assert client.get("/api/v1/onboarding").status_code == 401
 
 
+def test_emergency_contact_can_be_updated_without_duplicating_camera(tmp_path: Path) -> None:
+    with make_client(tmp_path) as client:
+        authorize(client)
+        configured = client.put(
+            "/api/v1/onboarding",
+            json={
+                "camera_name": "Demo Camera",
+                "camera_location": "North Gate",
+                "emergency_contact": "+919000000000",
+                "agent_api_key": "mock-agent-key",
+            },
+        )
+        assert configured.status_code == 200
+
+        updated = client.put(
+            "/api/v1/onboarding/emergency-contact",
+            json={
+                "emergency_contact": "+91 96860 43131",
+                "notification_preference": "WhatsApp alerts for verified incidents",
+            },
+        )
+
+        assert updated.status_code == 200
+        assert updated.json()["organization"]["emergency_contact"] == "+919686043131"
+        assert len(updated.json()["cameras"]) == 1
+
+        incident = client.post("/api/v1/incidents/process", json=detection_payload()).json()
+        audit = client.get(f"/api/v1/incidents/{incident['incident_id']}/audit").json()
+        assert audit["retrieval"]["contacts"] == ["+919686043131"]
+
+
+def test_emergency_contact_rejects_non_phone_values(tmp_path: Path) -> None:
+    with make_client(tmp_path) as client:
+        authorize(client)
+        response = client.put(
+            "/api/v1/onboarding/emergency-contact",
+            json={
+                "emergency_contact": "not-a-phone-number",
+                "notification_preference": "WhatsApp alerts",
+            },
+        )
+        assert response.status_code == 422
+
+
 def test_logout_revokes_session(tmp_path: Path) -> None:
     with make_client(tmp_path) as client:
         authorize(client)
@@ -661,7 +705,7 @@ def test_uploaded_policy_is_extracted_and_used_in_reasoning(tmp_path: Path) -> N
             json={
                 "camera_name": "Cam 1",
                 "camera_location": "Airport Road",
-                "emergency_contact": "+91123",
+                "emergency_contact": "+911234567890",
                 "agent_api_key": "mock-key-1234",
             },
         )

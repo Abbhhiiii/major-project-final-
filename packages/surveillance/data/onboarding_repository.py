@@ -119,6 +119,20 @@ class OnboardingRepository:
                 )
             )
 
+    def update_emergency_contact(
+        self,
+        organization_id: str,
+        emergency_contact: str,
+        preference: str,
+    ) -> None:
+        """Update delivery context without creating another camera or replacing policy data."""
+        with self.sessions.begin() as session:
+            organization = session.get(OrganizationRow, organization_id)
+            if organization is None:
+                raise LookupError("Organization not found")
+            organization.emergency_contact = emergency_contact
+            organization.notification_preference = preference
+
     def save_document(self, document: KnowledgeDocument, chunks: list[str]) -> None:
         with self.sessions.begin() as session:
             session.add(KnowledgeDocumentRow(**document.__dict__))

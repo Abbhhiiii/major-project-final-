@@ -95,10 +95,18 @@ number to enable live calls. Contacts must use E.164 format. `call`, `message`, 
 voice, WhatsApp, and no external delivery respectively. Failed provider attempts are persisted as
 failed delivery receipts; the platform never reports them as successful.
 
-For a safe presentation run, set `SURVEILLANCE_EXECUTION_MODE=simulate`. Groq reasoning, policy
-retrieval, verification, PDF generation, incident memory, and human-review memory remain real, while
-voice and WhatsApp actions are stored with the explicit status `simulated` and no provider request is
-made. Restore `live` before validating Twilio.
+For a safe presentation run with no external delivery, set
+`SURVEILLANCE_EXECUTION_MODE=simulate`. Groq reasoning, policy retrieval, verification, PDF
+generation, incident memory, and human-review memory remain real, while voice and WhatsApp actions
+are stored with the explicit status `simulated`. Use `hybrid` for the current demo: WhatsApp actions
+are delivered through the configured Vonage sandbox, while voice actions remain explicitly
+simulated until Twilio has been validated. Use `live` only when every selected external provider is
+ready.
+
+The demo WhatsApp alert is a single concise text derived from the agent decision. It includes the
+severity, agent message, camera, location, event time, and policy-guided next steps, followed by a
+prompt to open Sentrix for the full evidence and locally generated report. This avoids requiring a
+public tunnel merely to expose a development-machine PDF.
 
 For WhatsApp PDF delivery, also enable `SURVEILLANCE_TWILIO_WHATSAPP_ENABLED`, configure a
 WhatsApp-enabled Twilio sender, and set `SURVEILLANCE_PUBLIC_BASE_URL` to the public HTTPS origin
